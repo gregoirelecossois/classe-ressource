@@ -1345,10 +1345,10 @@ const NOTES_DEFAUT = [
 /* Classes proposées en première étape d'une arrivée. Les classes trouvées dans
    la liste des élèves importés viennent s'y ajouter automatiquement. */
 const CLASSES_DEFAUT = [
-  { id: 'cl_6',      libelle: '6e',    couleur: '#2f5fd8', icone: '' },
-  { id: 'cl_5',      libelle: '5e',    couleur: '#12916b', icone: '' },
-  { id: 'cl_4',      libelle: '4e',    couleur: '#d97a08', icone: '' },
-  { id: 'cl_3',      libelle: '3e',    couleur: '#6b4fd8', icone: '' },
+  { id: 'cl_6',      libelle: '6A',    couleur: '#2f5fd8', icone: '' },
+  { id: 'cl_5',      libelle: '5A',    couleur: '#12916b', icone: '' },
+  { id: 'cl_4',      libelle: '4A',    couleur: '#d97a08', icone: '' },
+  { id: 'cl_3',      libelle: '3A',    couleur: '#6b4fd8', icone: '' },
   { id: 'cl_cap1a',  libelle: 'CAP1A', couleur: '#0e7490', icone: '' },
   { id: 'cl_cap1b',  libelle: 'CAP1B', couleur: '#0e7490', icone: '' },
   { id: 'cl_cap1c',  libelle: 'CAP1C', couleur: '#0e7490', icone: '' },
@@ -1424,6 +1424,7 @@ const ETAT = {
 
 /* ---------- Réduction : événements -> état ---------- */
 function recalculer(){
+  CACHE_CLASSES = null;
   ETAT.profs = new Map();
   ETAT.eleves = new Map();
   ETAT.passages = new Map();
@@ -1960,16 +1961,119 @@ function elevesTries(filtre){
   if (filtre) l = l.filter(filtre);
   return l.sort((a, b) => (nomPropre(a.nom) + a.prenom).localeCompare(nomPropre(b.nom) + b.prenom, 'fr'));
 }
-function classesConnues(){
-  const m = new Map();
-  for (const e of ETAT.eleves.values()){
-    const c = (e.classe || '').trim();
-    if (!c) continue;
-    m.set(c, (m.get(c) || 0) + 1);
+/* ---------- Noms de classes : rapprochement tolérant ----------
+   Pronote n'écrit pas toujours le nom d'une classe de la même façon d'une
+   année à l'autre : « CAP1C », « CAP1C-PAR », « CAP1C - PAR » désignent la
+   même classe. On compare donc les libellés sur une forme canonique (sans
+   accent, sans espace ni tiret) et on accepte qu'un libellé soit le début
+   d'un autre, afin de ne jamais créer de doublon à l'import.               */
+const NIVEAUX_HISTORIQUES = { '6': '6A', '5': '5A', '4': '4A', '3': '3A' };
+/** Découpe un nom de classe en segments comparables : « CAP1C - PAR » -> ['cap1c','par'].
+    Les anciens libellés de niveau (« 6e », « 6ème », « 6 ») sont ramenés à « 6A ». */
+function segmentsClasse(nom){
+  const n = norm(nom);
+  const niveau = /^([3-6]) ?(e|em|eme|ieme)?$/.exec(n);
+  if (niveau) return [norm(NIVEAUX_HISTORIQUES[niveau[1]])];
+  return n.split(' ').filter(Boolean);
+}
+/** Forme canonique d'un nom de classe : « CAP1C - PAR » -> 'cap1cpar'. */
+function cleClasse(nom){ return segmentsClasse(nom).join(''); }
+/** Les deux libellés désignent-ils vraisemblablement la même classe ? */
+function memeClasse(a, b){
+  const ca = cleClasse(a), cb = cleClasse(b);
+  if (!ca || !cb) return false;
+  if (ca === cb) return true;
+  // « CAP1C » est le début complet de « CAP1C - PAR » : même classe.
+  const court = ca.length < cb.length ? ca : cb;
+  const segments = segmentsClasse(ca.length < cb.length ? b : a);
+  let debut = '';
+  for (let i = 0; i < segments.length - 1; i++){
+    debut += segments[i];
+    if (debut === court) return true;
   }
-  return Array.from(m.entries())
-    .map(([nom, n]) => ({ nom, effectif: n }))
+  return false;
+}
+/** Couleur proposée d'office pour une classe créée par un import. */
+function couleurClasse(nom){
+  const c = cleClasse(nom);
+  if (c.indexOf('cap1') === 0) return '#0e7490';
+  if (c.indexOf('cap2') === 0) return '#be185d';
+  if (c.indexOf('6') === 0) return '#2f5fd8';
+  if (c.indexOf('5') === 0) return '#12916b';
+  if (c.indexOf('4') === 0) return '#d97a08';
+  if (c.indexOf('3') === 0) return '#6b4fd8';
+  return '#6b7789';
+}
+let CACHE_CLASSES = null;   // vidé par recalculer()
+/** Classes de l'application : celles paramétrées (Réglages ▸ Classes) d'abord,
+    puis celles portées par les élèves, les libellés voisins étant regroupés. */
+function groupesClasses(){
+  if (CACHE_CLASSES) return CACHE_CLASSES;
+  const groupes = [];
+  const trouver = nom => groupes.find(g => memeClasse(g.nom, nom));
+  (ETAT.listes.classes || []).forEach(c => {
+    const nom = (c.libelle || '').trim();
+    if (!nom || trouver(nom)) return;
+    groupes.push({ nom, id: c.id, couleur: c.couleur, icone: c.icone,
+                   parametree: true, effectif: 0, variantes: [nom] });
+  });
+  for (const e of ETAT.eleves.values()){
+    const nom = (e.classe || '').trim();
+    if (!nom) continue;
+    let g = trouver(nom);
+    if (!g){ g = { nom, parametree: false, effectif: 0, variantes: [] }; groupes.push(g); }
+    g.effectif++;
+    if (!g.variantes.some(v => cleClasse(v) === cleClasse(nom))){
+      g.variantes.push(nom);
+      // pour une classe non paramétrée, on retient le libellé le plus détaillé
+      if (!g.parametree && segmentsClasse(nom).length > segmentsClasse(g.nom).length) g.nom = nom;
+    }
+  }
+  CACHE_CLASSES = groupes;
+  return groupes;
+}
+/** Libellé retenu pour une classe, toutes variantes d'écriture confondues. */
+function nomClasse(nom){
+  const t = String(nom || '').trim();
+  if (!t) return '';
+  const g = groupesClasses().find(x => memeClasse(x.nom, t));
+  return g ? g.nom : t;
+}
+/** Rattache un nom de classe importé au libellé déjà utilisé qui lui ressemble.
+    Rend le nom d'origine si aucune correspondance certaine n'est trouvée. */
+function rapprocherClasse(nom, connues){
+  const t = String(nom || '').trim();
+  if (!t) return '';
+  const c = cleClasse(t);
+  const exact = connues.find(x => cleClasse(x) === c);
+  if (exact) return exact;
+  const proches = connues.filter(x => memeClasse(x, t));
+  return proches.length === 1 ? proches[0] : t;   // ambiguïté : on ne devine pas
+}
+/** Événement ajoutant à Réglages ▸ Classes les classes des élèves qui n'y
+    figurent pas encore, afin qu'elles y soient visibles et modifiables. */
+function evenementsNouvellesClasses(supplementaires){
+  const items = clone(ETAT.listes.classes || []);
+  const candidats = (supplementaires || []).concat(
+    groupesClasses().filter(g => g.effectif).map(g => g.nom));
+  let ajoutes = 0;
+  candidats.forEach(nom => {
+    const t = String(nom || '').trim();
+    if (!t || items.some(c => memeClasse(c.libelle, t))) return;
+    items.push({ id: uid('cl'), libelle: t, couleur: couleurClasse(t), icone: '' });
+    ajoutes++;
+  });
+  return { ajoutes, evts: ajoutes ? [evt('liste', { liste: 'classes', items })] : [] };
+}
+/** Classes comptant au moins un élève, avec leur effectif. */
+function classesConnues(){
+  return groupesClasses().filter(g => g.effectif)
+    .map(g => ({ nom: g.nom, effectif: g.effectif }))
     .sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { numeric: true }));
+}
+/** Tous les élèves d'une classe, quelles que soient les variantes du libellé. */
+function elevesDeClasse(nom){
+  return elevesTries(e => memeClasse(e.classe, nom));
 }
 function passagesTries(){
   return Array.from(ETAT.passages.values()).sort((a, b) => (a.debut < b.debut ? 1 : -1));
@@ -2426,7 +2530,7 @@ function bilanJournee(){
   jour.forEach(p => {
     const m = (p.motif && p.motif.libelle) || 'Non précisé';
     parMotif.set(m, (parMotif.get(m) || 0) + dureePassage(p));
-    const c = p.eleve.classe || '—';
+    const c = nomClasse(p.eleve.classe) || '—';
     parClasse.set(c, (parClasse.get(c) || 0) + dureePassage(p));
   });
   const contenu = el('div', null, [
@@ -2541,21 +2645,8 @@ function rendreArrivee(){
 
 /** Classes paramétrées + classes issues des élèves importés, sans doublon. */
 function classesProposees(){
-  const reelles = classesConnues();
-  const effectif = new Map(reelles.map(c => [norm(c.nom), c.effectif]));
-  const sortie = [], vus = new Set();
-  (ETAT.listes.classes || []).forEach(c => {
-    const nom = (c.libelle || '').trim();
-    if (!nom || vus.has(norm(nom))) return;
-    vus.add(norm(nom));
-    sortie.push({ nom, effectif: effectif.get(norm(nom)) || 0, couleur: c.couleur, icone: c.icone });
-  });
-  reelles.forEach(c => {
-    if (vus.has(norm(c.nom))) return;
-    vus.add(norm(c.nom));
-    sortie.push({ nom: c.nom, effectif: c.effectif });
-  });
-  return sortie;
+  return groupesClasses().map(g => ({ nom: g.nom, effectif: g.effectif,
+                                      couleur: g.couleur, icone: g.icone }));
 }
 
 function etapeClasse(){
@@ -2593,7 +2684,7 @@ function etapeEleve(){
   const dessiner = () => {
     vider(grille);
     const q = norm(a.recherche);
-    const liste = elevesTries(e => (!a.classe || e.classe === a.classe) &&
+    const liste = elevesTries(e => (!a.classe || memeClasse(e.classe, a.classe)) &&
       (!q || norm(libelleEleve(e) + ' ' + e.nom).includes(q)));
     liste.forEach(e => grille.appendChild(tuile({
       titre: libelleEleve(e),
@@ -2780,9 +2871,9 @@ function modalNouvelEleve(classeDefaut){
     const valider = f => {
       if (!cNom.value.trim() || !cPrenom.value.trim()){ notifier('Nom et prénom obligatoires.', 'erreur'); return; }
       const e = { id: uid('el'), nom: nomPropre(cNom.value), prenom: capitaliser(cPrenom.value),
-                  prenomUsage: '', classe: cClasse.value.trim(), sexe: cSexe.value,
-                  naissance: cNaiss.value, actif: true, source: 'manuel' };
-      enregistrer('eleve', e);
+                  prenomUsage: '', classe: rapprocherClasse(cClasse.value, groupesClasses().map(g => g.nom)),
+                  sexe: cSexe.value, naissance: cNaiss.value, actif: true, source: 'manuel' };
+      ajouterEvenements([evt('eleve', e)].concat(evenementsNouvellesClasses([e.classe]).evts));
       fini = true; f(); res(e);
     };
     ouvrirModale({
@@ -3172,7 +3263,7 @@ function passagesFiltres(){
   const b = bornesPeriode();
   return passagesTries().filter(p => {
     if (p.debut < b.du || p.debut > b.au) return false;
-    if (FILTRES.classe && p.eleve.classe !== FILTRES.classe) return false;
+    if (FILTRES.classe && !memeClasse(p.eleve.classe, FILTRES.classe)) return false;
     if (FILTRES.eleveId && p.eleveId !== FILTRES.eleveId) return false;
     if (FILTRES.motif && ((p.motif && p.motif.libelle) || '') !== FILTRES.motif) return false;
     if (FILTRES.prof && ((p.envoyePar && p.envoyePar.libelle) || '') !== FILTRES.prof) return false;
@@ -3217,7 +3308,7 @@ function barreFiltres(zone, options){
     [{ v: '', t: 'Toutes' }].concat(classesConnues().map(c => ({ v: c.nom, t: c.nom }))),
     FILTRES.classe, v => { FILTRES.classe = v; rafraichirEcranCourant(); }));
   zone.appendChild(select('Élève',
-    [{ v: '', t: 'Tous' }].concat(elevesTries(e => !FILTRES.classe || e.classe === FILTRES.classe)
+    [{ v: '', t: 'Tous' }].concat(elevesTries(e => !FILTRES.classe || memeClasse(e.classe, FILTRES.classe))
       .map(e => ({ v: e.id, t: libelleEleve(e) }))),
     FILTRES.eleveId, v => { FILTRES.eleveId = v; rafraichirEcranCourant(); }, '180px'));
   zone.appendChild(select('Motif',
@@ -3362,12 +3453,12 @@ function rendreStats(){
     formatMetrique), mesure));
 
   /* Par classe */
-  const parClasse = agreger(liste, p => p.eleve.classe);
+  const parClasse = agreger(liste, p => nomClasse(p.eleve.classe));
   z.appendChild(blocGraph('Par classe', barresHorizontales(
     parClasse.map(o => ({ libelle: o.libelle, valeur: valeurMetrique(o) })), formatMetrique), mesure));
 
   /* Top élèves */
-  const parEleve = trierPar(agreger(liste, p => libelleEleve(p.eleve) + ' · ' + (p.eleve.classe || '')),
+  const parEleve = trierPar(agreger(liste, p => libelleEleve(p.eleve) + ' · ' + nomClasse(p.eleve.classe)),
                             valeurMetrique, true).slice(0, 15);
   z.appendChild(blocGraph('Élèves les plus accueillis', barresHorizontales(
     parEleve.map(o => ({ libelle: o.libelle, valeur: valeurMetrique(o) })), formatMetrique),
@@ -3681,7 +3772,7 @@ function feuillesExport(liste){
   return [
     { nom: 'Passages', lignes: lignesPassages(l) },
     { nom: 'Par élève', lignes: lignesSynthese(l, p => libelleEleve(p.eleve) + ' (' + (p.eleve.classe || '') + ')', 'Élève') },
-    { nom: 'Par classe', lignes: lignesSynthese(l, p => p.eleve.classe, 'Classe') },
+    { nom: 'Par classe', lignes: lignesSynthese(l, p => nomClasse(p.eleve.classe), 'Classe') },
     { nom: 'Par motif', lignes: lignesSynthese(l, p => p.motif && p.motif.libelle, 'Motif') },
     { nom: 'Par envoyeur', lignes: lignesSynthese(l, p => p.envoyePar && p.envoyePar.libelle, 'Envoyé par') },
     { nom: 'Emploi du temps', lignes: lignesEDT(l) },
@@ -4137,9 +4228,11 @@ function editerEleve(e, apres){
   ouvrirModale({
     titre: 'Modifier ' + libelleEleve(e), contenu, largeur: 'large',
     boutons: [{ texte: 'Annuler' }, { texte: 'Enregistrer', classe: 'principal', action: f => {
-      enregistrer('eleve', { id: e.id, nom: nomPropre(c.nom.value), prenom: capitaliser(c.prenom.value),
-        prenomUsage: capitaliser(c.prenomUsage.value), classe: c.classe.value.trim(),
-        sexe: c.sexe.value.trim().toUpperCase(), naissance: c.naissance.value.trim() });
+      const classe = rapprocherClasse(c.classe.value, groupesClasses().map(g => g.nom));
+      ajouterEvenements([evt('eleve', { id: e.id, nom: nomPropre(c.nom.value),
+        prenom: capitaliser(c.prenom.value), prenomUsage: capitaliser(c.prenomUsage.value), classe,
+        sexe: c.sexe.value.trim().toUpperCase(), naissance: c.naissance.value.trim() })]
+        .concat(evenementsNouvellesClasses([classe]).evts));
       f(); if (apres) apres(); notifier('Élève modifié.', 'succes');
     } }]
   });
@@ -4157,8 +4250,19 @@ async function renommerClasse(){
     boutons: [{ texte: 'Annuler' }, { texte: 'Renommer', classe: 'principal', action: f => {
       const n = nouveau.value.trim();
       if (!n) return;
-      const vises = elevesTries(e => e.classe === sel.value);
-      ajouterEvenements(vises.map(e => evt('eleve', { id: e.id, classe: n })));
+      const vises = elevesDeClasse(sel.value);
+      const evts = vises.map(e => evt('eleve', { id: e.id, classe: n }));
+      // la liste paramétrable suit le renommage, sans quoi l'ancien libellé subsisterait
+      const items = clone(ETAT.listes.classes || []);
+      let listeChangee = false;
+      items.forEach(c => { if (memeClasse(c.libelle, sel.value)){ c.libelle = n; listeChangee = true; } });
+      if (listeChangee) evts.push(evt('liste', { liste: 'classes', items }));
+      ajouterEvenements(evts);
+      // classe absente des réglages : on l'y ajoute sous son nouveau nom
+      if (!listeChangee){
+        const maj = evenementsNouvellesClasses([n]);
+        if (maj.evts.length) ajouterEvenements(maj.evts);
+      }
       f(); panneauEleves(); notifier(vises.length + ' élève(s) déplacé(s) en ' + n, 'succes');
     } }]
   });
@@ -4245,7 +4349,7 @@ const DESC_LISTES = {
   origines:      { titre: 'Provenances (envoyé par)', aide: 'Cochez « demande l\'enseignant » pour ouvrir la liste des enseignants.', couleur: true, icone: true, prof: true },
   destinations:  { titre: 'Suites données à la sortie', aide: 'Proposées après l\'appréciation du travail.', couleur: true, icone: true },
   notes:         { titre: "Raccourcis d'informations complémentaires", aide: "Boutons proposés sous la zone de texte, au départ de l'élève.", couleur: false, icone: false },
-  classes:       { titre: 'Classes', aide: 'Tuiles proposées à la première étape d\'une arrivée. Les classes des élèves importés viennent s\'y ajouter automatiquement.', couleur: true, icone: true }
+  classes:       { titre: 'Classes', aide: 'Tuiles proposées à la première étape d\'une arrivée. Les classes des élèves importés viennent s\'y ajouter automatiquement : renommez-les ici, les élèves suivent. Les écritures voisines (« CAP1C », « CAP1C-PAR », « CAP1C - PAR ») sont considérées comme une seule et même classe.', couleur: true, icone: true }
 };
 function panneauListes(){
   const z = vider($('#panneau-listes'));
@@ -4570,6 +4674,8 @@ function assistantImport(type){
           el('p', { html: '<strong>' + r.ajoutes + '</strong> ajout(s), <strong>' + r.majs +
                           '</strong> mise(s) à jour, <strong>' + r.ignores + '</strong> ligne(s) ignorée(s)' +
                           (r.supprimes ? ', <strong>' + r.supprimes + '</strong> suppression(s)' : '') + '.' }),
+          r.classes ? el('p', { class: 'aide', html: '<strong>' + r.classes + '</strong> nouvelle(s) classe(s) ' +
+            'ajoutée(s) à <strong>Réglages ▸ Motifs &amp; listes ▸ Classes</strong>.' }) : null,
           r.exemples.length ? el('p', { class: 'aide', html: 'Lignes ignorées : ' +
             ech(r.exemples.join(' · ')) }) : null
         ]),
@@ -4582,8 +4688,14 @@ function assistantImport(type){
 }
 
 function importerLignes(type, donnees, mappage, remplacer){
-  const res = { ajoutes: 0, majs: 0, ignores: 0, supprimes: 0, exemples: [] };
+  const res = { ajoutes: 0, majs: 0, ignores: 0, supprimes: 0, classes: 0, exemples: [] };
   const evts = [];
+  /* Noms de classes déjà utilisés : une classe importée sous une écriture
+     voisine (« CAP1C » / « CAP1C-PAR » / « CAP1C - PAR ») y est rattachée
+     au lieu de créer un doublon. Les libellés inconnus s'y ajoutent au fil
+     des lignes, pour que deux écritures du même import se rejoignent aussi. */
+  const nomsClasses = type === 'eleves' ? groupesClasses().map(g => g.nom) : [];
+  const classesCreees = [];
   const vus = new Set();
   const cleDe = o => type === 'eleves'
     ? norm(o.nom + ' ' + o.prenom) + '|' + (o.naissance ? norm(o.naissance) : '')
@@ -4604,6 +4716,10 @@ function importerLignes(type, donnees, mappage, remplacer){
     }
     o.nom = nomPropre(o.nom); o.prenom = capitaliser(o.prenom);
     if (o.sexe) o.sexe = o.sexe.trim().toUpperCase().slice(0, 1);
+    if (type === 'eleves' && o.classe){
+      o.classe = rapprocherClasse(o.classe, nomsClasses);
+      if (nomsClasses.indexOf(o.classe) < 0){ nomsClasses.push(o.classe); classesCreees.push(o.classe); }
+    }
     const cle = cleDe(o);
     const cleLarge = type === 'eleves' ? norm(o.nom + ' ' + o.prenom) + '|' : cle;
     const existant = index.get(cle) || index.get(cleLarge);
@@ -4632,6 +4748,13 @@ function importerLignes(type, donnees, mappage, remplacer){
         res.supprimes++;
       }
     });
+  }
+  if (type === 'eleves'){
+    // les classes importées doivent être visibles et modifiables dans
+    // Réglages ▸ Motifs & listes ▸ Classes, comme celles fournies d'origine
+    const maj = evenementsNouvellesClasses(classesCreees);
+    res.classes = maj.ajoutes;
+    maj.evts.forEach(e => evts.push(e));
   }
   if (evts.length) ajouterEvenements(evts);
   return res;
