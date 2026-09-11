@@ -291,6 +291,12 @@ html[data-theme="sombre"] .fil .etape.encours{color:#12171f}
 .boite-connexion .auto input{font-size:1.3rem;padding:17px 19px;text-align:center;font-weight:650;border-width:2px}
 .recents{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:18px}
 .recents .btn{background:var(--carte);border:1px solid var(--bordure)}
+.recent{display:flex}
+.recent .nom{border-top-right-radius:0;border-bottom-right-radius:0;border-right:0}
+.recent .retirer{border-top-left-radius:0;border-bottom-left-radius:0;
+  padding:11px 11px;color:var(--texte-doux);font-size:.8rem}
+.recent .retirer:hover{background:var(--rouge-clair);color:var(--rouge)}
+.aide-recents{margin-top:8px;font-size:.78rem;color:var(--texte-doux)}
 .pied-connexion{margin-top:26px;font-size:.8rem;color:var(--texte-doux)}
 
 /* ============================================================
@@ -432,6 +438,7 @@ html[data-theme="sombre"] .notif{background:#fff;color:#12171f}
     </div>
 
     <div class="recents" id="profs-recents"></div>
+    <p class="aide-recents" id="aide-recents"></p>
 
     <div id="zone-dossier-connexion"></div>
 
@@ -2153,9 +2160,25 @@ function recents(){
   try { return JSON.parse(CLES.lire('cr_recents') || '[]'); } catch(e){ return []; }
 }
 function ajouterRecent(p){
-  const l = recents().filter(x => norm(x.nom + x.prenom) !== norm(p.nom + p.prenom));
+  const l = recents().filter(x => !memeRaccourci(x, p));
   l.unshift({ nom: p.nom, prenom: p.prenom, id: p.id || null });
   CLES.ecrire('cr_recents', JSON.stringify(l.slice(0, 5)));
+}
+/** Même enseignant ? L'identifiant prime, pour survivre à une correction du nom. */
+function memeRaccourci(a, b){
+  if (a.id && b.id) return a.id === b.id;
+  return norm(a.nom + ' ' + a.prenom) === norm(b.nom + ' ' + b.prenom);
+}
+/** Retire un raccourci de l'écran d'accueil de CE poste. */
+function retirerRecent(p){
+  const l = recents(), reste = l.filter(x => !memeRaccourci(x, p));
+  if (reste.length !== l.length) CLES.ecrire('cr_recents', JSON.stringify(reste));
+  return l.length - reste.length;
+}
+function viderRecents(){ CLES.ecrire('cr_recents', '[]'); }
+/** Enseignant de la liste partagée correspondant à un raccourci, s'il existe encore. */
+function profDuRaccourci(p){
+  return profsTries().find(x => memeRaccourci(x, p)) || null;
 }
 /** "LE GOFF Marie" -> {nom:'LE GOFF', prenom:'Marie'} */
 function decouperNom(saisie){
@@ -2180,6 +2203,51 @@ function sourceProfsConnexion(){
   });
   return sortie;
 }
+/* Raccourcis de l'écran d'accueil : ils vivent dans le navigateur de ce poste
+   (et nulle part ailleurs), alors que la fiche de l'enseignant est partagée
+   dans le dossier de données. On distingue donc clairement les deux gestes. */
+function modaleRetirerRaccourci(raccourci){
+  const connu = profDuRaccourci(raccourci);
+  const nom = libelleProf(connu || raccourci);
+  const envois = connu
+    ? Array.from(ETAT.passages.values()).filter(x => x.envoyePar && x.envoyePar.profId === connu.id).length
+    : 0;
+  const boutons = [{ texte: 'Annuler' }];
+  if (connu) boutons.push({ texte: "Supprimer aussi l'enseignant", gauche: true, classe: 'danger',
+    action: async f => {
+      const ok = await confirmer('Supprimer ' + nom + ' de la liste des enseignants ?',
+        envois ? 'Ses <strong>' + envois + '</strong> envoi(s) déjà enregistrés restent dans l\'historique. '
+               + 'La suppression vaut pour <strong>tous les postes</strong>.'
+               : 'La suppression vaut pour <strong>tous les postes</strong>.',
+        'Supprimer', 'Annuler', 'danger');
+      if (!ok) return;
+      enregistrer('prof', { id: connu.id, supprime: true });
+      retirerRecent(raccourci);
+      f(); initConnexion();
+      notifier(nom + ' a été supprimé de la liste des enseignants.', 'succes', 4000);
+    } });
+  boutons.push({ texte: 'Retirer le raccourci', classe: 'principal', action: f => {
+    retirerRecent(raccourci);
+    f(); initConnexion();
+    notifier('Raccourci retiré de cet ordinateur.', 'succes');
+  } });
+  ouvrirModale({
+    titre: 'Retirer ' + nom + ' ?', autofocus: false,
+    contenu: el('div', null, [
+      el('p', { style: { marginTop: '0' }, html:
+        '<strong>Retirer le raccourci</strong> enlève seulement le bouton de cet écran, ' +
+        'sur <strong>cet ordinateur</strong>. ' + (connu
+          ? 'L\'enseignant reste dans la liste partagée et pourra toujours être saisi au clavier.'
+          : 'Cet enseignant ne figure plus dans la liste partagée : seul le bouton subsistait.') }),
+      el('p', { class: 'aide', html: (connu
+        ? '<strong>Supprimer aussi l\'enseignant</strong> le retire de la liste partagée, sur tous ' +
+          'les postes — à réserver aux saisies erronées.' +
+          (envois ? ' Ses <strong>' + envois + '</strong> envoi(s) resteront dans l\'historique.' : '') + ' '
+        : '') + 'La liste complète se gère dans <strong>Réglages ▸ Enseignants</strong>.' })
+    ]),
+    boutons
+  });
+}
 let connexionBranchee = null;
 function initConnexion(){
   const champ = $('#saisie-prof');
@@ -2195,14 +2263,19 @@ function initConnexion(){
     $('#btn-entrer').addEventListener('click', validerSaisieProf);
   }
   const zone = vider($('#profs-recents'));
-  recents().forEach(p => {
-    zone.appendChild(el('button', {
-      class: 'btn', onclick: () => {
-        const exact = profsTries().find(x => norm(libelleProf(x)) === norm(libelleProf(p)));
-        connecter(exact || p);
-      }
-    }, libelleProf(p)));
+  const raccourcis = recents();
+  raccourcis.forEach(p => {
+    const connu = profDuRaccourci(p);          // suit une éventuelle correction du nom
+    const nom = libelleProf(connu || p);
+    zone.appendChild(el('div', { class: 'recent' }, [
+      el('button', { class: 'btn nom', onclick: () => connecter(connu || p) }, nom),
+      el('button', { class: 'btn retirer', title: 'Retirer « ' + nom + ' » de cet écran',
+                     'aria-label': 'Retirer ' + nom, onclick: () => modaleRetirerRaccourci(p) }, '✕')
+    ]));
   });
+  $('#aide-recents').textContent = raccourcis.length
+    ? 'Raccourcis mémorisés sur cet ordinateur — ✕ pour faire le tri.'
+    : '';
   majZoneDossierConnexion();
   majDiagnostic();
   $('#info-stockage-connexion').innerHTML =
@@ -3950,11 +4023,13 @@ function panneauDonnees(){
       } }, 'Purger les passages avant une date'),
       el('button', { class: 'btn danger', onclick: async () => {
         const ok = await confirmer('Tout effacer sur ce poste ?',
-          'Les données de <strong>ce navigateur</strong> seront effacées. Les journaux déjà écrits ' +
-          'dans le dossier partagé seront relus au prochain démarrage.', 'Tout effacer', 'Annuler', 'danger');
+          'Les données de <strong>ce navigateur</strong> seront effacées, y compris les raccourcis ' +
+          'de l\'écran d\'accueil. Les journaux déjà écrits dans le dossier partagé seront relus ' +
+          'au prochain démarrage.', 'Tout effacer', 'Annuler', 'danger');
         if (!ok) return;
         ETAT.evenements.clear(); recalculer();
         if (BDD) { try { BDD.transaction('journal', 'readwrite').objectStore('journal').clear(); } catch(e){} }
+        viderRecents();
         notifier('Données locales effacées.');
         rafraichirEcranCourant();
       } }, 'Effacer les données de ce poste')
@@ -4304,8 +4379,11 @@ function panneauProfs(){
           el('td', null, el('div', { style: { display: 'flex', gap: '5px' } }, [
             el('button', { class: 'btn petit', onclick: () => editerProf(p, dessiner) }, 'Modifier'),
             el('button', { class: 'btn petit danger', onclick: async () => {
-              if (await confirmer('Supprimer ' + libelleProf(p) + ' ?', '', 'Supprimer', 'Annuler', 'danger')){
-                enregistrer('prof', { id: p.id, supprime: true }); dessiner();
+              if (await confirmer('Supprimer ' + libelleProf(p) + ' ?',
+                  'Le raccourci de l\'écran d\'accueil de ce poste est retiré en même temps.',
+                  'Supprimer', 'Annuler', 'danger')){
+                enregistrer('prof', { id: p.id, supprime: true });
+                retirerRecent(p); dessiner();
               }
             } }, '✕')
           ]))
