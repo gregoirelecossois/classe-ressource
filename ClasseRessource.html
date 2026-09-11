@@ -2159,10 +2159,11 @@ const SESSION = { profsTemporaires: [] };
 function recents(){
   try { return JSON.parse(CLES.lire('cr_recents') || '[]'); } catch(e){ return []; }
 }
+const MAX_RECENTS = 10;          // raccourcis gardés sur l'écran d'accueil
 function ajouterRecent(p){
   const l = recents().filter(x => !memeRaccourci(x, p));
   l.unshift({ nom: p.nom, prenom: p.prenom, id: p.id || null });
-  CLES.ecrire('cr_recents', JSON.stringify(l.slice(0, 5)));
+  CLES.ecrire('cr_recents', JSON.stringify(l.slice(0, MAX_RECENTS)));
 }
 /** Même enseignant ? L'identifiant prime, pour survivre à une correction du nom. */
 function memeRaccourci(a, b){
