@@ -271,6 +271,33 @@ html[data-theme="sombre"] .fil .etape.encours{color:#12171f}
 .auto-liste .princ{font-weight:650}
 .auto-liste .sec{font-size:.8rem;color:var(--texte-doux);margin-left:auto}
 
+/* Palette d'émojis (clic sur la case icône d'un réglage) */
+.palette-emoji{
+  position:fixed;z-index:90;width:328px;max-width:calc(100vw - 20px);display:flex;flex-direction:column;
+  background:var(--carte);border:1px solid var(--bordure);border-radius:var(--r);box-shadow:var(--ombre-forte);
+  overflow:hidden;
+}
+.palette-emoji .haut{padding:8px;border-bottom:1px solid var(--bordure)}
+.palette-emoji .haut input{width:100%;padding:8px 10px;font-size:.88rem}
+.palette-emoji .corps{overflow:auto;max-height:290px;padding:4px 8px 10px}
+.palette-emoji h4{
+  font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--texte-doux);margin:10px 0 4px;
+}
+.palette-emoji .grille{display:grid;grid-template-columns:repeat(8,1fr);gap:2px}
+.palette-emoji .grille button{
+  font-size:1.3rem;line-height:1;padding:6px 0;border-radius:8px;
+  font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",var(--police);
+}
+.palette-emoji .grille button:hover{background:var(--bleu-clair)}
+.palette-emoji .bas{
+  display:flex;gap:8px;align-items:center;justify-content:space-between;
+  padding:8px;border-top:1px solid var(--bordure);font-size:.76rem;color:var(--texte-doux);
+}
+.palette-emoji .bas .btn{padding:7px 12px;font-size:.82rem}
+.palette-emoji .vide-palette{padding:18px 4px;text-align:center;color:var(--texte-doux);font-size:.85rem}
+.case-emoji{cursor:pointer;text-align:center;font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",var(--police)}
+
 /* ============================================================
    CONNEXION
    ============================================================ */
@@ -2142,6 +2169,168 @@ function tuile(o){
 function champRecherche(placeholder, surSaisie){
   const i = el('input', { type: 'search', placeholder, oninput: () => surSaisie(i.value) });
   return el('div', { style: { marginBottom: '14px', maxWidth: '420px' } }, i);
+}
+/* ---------- Palette d'émojis ----------
+   Aucun navigateur ne sait ouvrir le panneau d'émojis de Windows depuis une
+   page : on propose donc notre propre palette, recherchable en français, et
+   la case reste ouverte au raccourci Windows + . qui écrit dans la recherche. */
+const EMOJIS_PALETTE = [
+  ['Visages et émotions',
+   '🙂 sourire content|😀 rire joie|😃 sourire joie|😄 rire heureux|😁 sourire dents|😊 content timide|' +
+   '😉 clin oeil complice|🙃 ironie|😅 soulagement gene|🤗 calin accueil|🥰 affection coeur|😍 admiration|' +
+   '🤩 impressionne etoiles|😎 lunettes fier|🥳 fete bravo|😇 sage aureole|🤭 rire discret|🤫 chut silence|' +
+   '🤔 reflexion pense|🤨 doute sourcil|😐 neutre|😑 blase|🙄 agace yeux au ciel|😏 malice|😶 muet silence|' +
+   '🤐 bouche cousue|😴 dort sommeil|🥱 baille fatigue|😪 fatigue endormi|🤒 malade fievre|🤕 blesse bobo|' +
+   '🤢 degout nausee|🥵 chaud|🥶 froid|😥 inquiet triste|😢 pleure triste|😭 chagrin pleure fort|' +
+   '😤 colere vapeur|😠 fache colere|😡 colere rouge|🤬 insulte grossier|😳 gene surprise|🥺 supplie|' +
+   '😬 grimace malaise|😰 stress angoisse|😨 peur|😱 panique cri|🤯 depasse tete explose'],
+  ['Personnes et gestes',
+   '👋 bonjour salut|🤝 accord poignee de main|👍 pouce oui bravo|👎 pouce non|👏 applaudit bravo|' +
+   '🙌 hourra bravo|🙏 merci priere|✋ stop main|👌 parfait ok|✌️ paix victoire|🤞 chance doigts croises|' +
+   '💪 force courage|👦 garcon|👧 fille|🧒 enfant|👩 femme|👨 homme|🧑 personne|👪 famille|👥 groupe eleves|' +
+   '🚶 marche deplacement|🏃 court urgence|🧘 calme detente|💤 repos dodo'],
+  ['École et travail',
+   '🎓 diplome eleve etudes|🏫 ecole college|🎒 cartable sac|📚 livres lecture|📖 livre ouvert lecture|' +
+   '📕 livre rouge|📒 cahier|📝 devoir ecrire|✏️ crayon ecrire|🖊️ stylo|🖍️ feutre couleur|📐 geometrie regle|' +
+   '📏 regle mesure|✂️ ciseaux|🧮 calcul maths boulier|🔢 chiffres nombres maths|🔤 lettres francais|' +
+   '🗂️ classeur dossiers|📁 dossier|📄 feuille document|📋 liste presse papier|📌 punaise|📎 trombone|' +
+   '🗒️ bloc notes|📊 statistiques graphique|📈 progres hausse|📉 baisse|🗓️ calendrier agenda|📅 date calendrier|' +
+   '🕐 heure horloge|⏰ retard reveil|⏳ temps sablier|🔔 sonnerie cloche|🔕 silence cloche barree|' +
+   '💻 ordinateur portable|🖥️ ordinateur|⌨️ clavier|🖨️ imprimante|🔍 recherche loupe|💡 idee ampoule|' +
+   '🧠 cerveau reflexion'],
+  ['Objets et lieux',
+   '🏠 maison|🚪 porte sortie|🪑 chaise place|🏥 infirmerie sante|🩹 pansement soin|🩺 infirmier sante|' +
+   '💊 medicament|🚑 urgence ambulance|🚻 toilettes|🍽️ cantine repas|☕ pause cafe|☎️ telephone|' +
+   '📞 appel telephone|📱 portable telephone|✉️ courrier message|📣 annonce porte voix|📢 annonce|🔑 cle|' +
+   '🔒 ferme cadenas|🔓 ouvert cadenas|🧰 outils boite|🧹 rangement menage|🧴 gel hygiene|🧼 savon hygiene|' +
+   '🎧 casque audio|🎵 musique|🎨 arts plastiques dessin|🖌️ pinceau peinture|🎭 theatre|🎬 video film|' +
+   '📷 photo|🔦 lampe torche'],
+  ['Activités et sport',
+   '⚽ football sport|🏀 basket sport|🏐 volley sport|🏓 ping pong tennis de table|🏸 badminton|' +
+   '🤸 gymnastique eps|🏊 natation piscine|🚴 velo|🥇 medaille premier|🏆 trophee reussite|🎯 objectif cible|' +
+   '🎲 jeu de|🧩 puzzle jeu|🎮 jeu video|🃏 carte jeu|🪁 cerf volant'],
+  ['Nature et animaux',
+   '🌞 soleil|🌙 lune soir|⭐ etoile|🌟 etoile brillante|✨ etincelles|🔥 feu urgent|💧 eau goutte|' +
+   '🌈 arc en ciel|🌱 pousse progres|🌳 arbre|🌻 fleur tournesol|🍀 chance trefle|🐶 chien|🐱 chat|🐭 souris|' +
+   '🦊 renard|🐢 tortue lent|🐌 escargot lent|🦋 papillon|🐝 abeille|🦉 hibou sage|🐧 pingouin'],
+  ['Nourriture',
+   '🍎 pomme fruit|🍏 pomme verte|🍌 banane|🍓 fraise|🥕 carotte legume|🍞 pain|🥐 croissant|🧀 fromage|' +
+   '🍫 chocolat|🍪 biscuit gateau|🍰 part de gateau|🎂 anniversaire gateau|🍬 bonbon|🥤 boisson|🥛 lait'],
+  ['Symboles',
+   '✅ valide fait|☑️ case cochee|✔️ coche valide|❌ erreur non croix|⛔ interdit|🚫 interdit barre|' +
+   '⚠️ attention danger|❗ important exclamation|❓ question|💬 parole message|🗨️ bulle parole|💭 pensee bulle|' +
+   '➕ plus ajouter|➖ moins retirer|➡️ fleche droite|⬅️ fleche gauche|⬆️ fleche haut|⬇️ fleche bas|' +
+   '🔄 recommence retour|🔁 repetition|🔝 haut top|🆗 ok|🆕 nouveau|♻️ recyclage|💯 cent parfait|' +
+   '🔵 rond bleu|🟢 rond vert|🟡 rond jaune|🟠 rond orange|🔴 rond rouge|🟣 rond violet|⚫ rond noir|' +
+   '⚪ rond blanc|🟥 carre rouge|🟩 carre vert|🟦 carre bleu|🟨 carre jaune|❤️ coeur rouge|🧡 coeur orange|' +
+   '💛 coeur jaune|💚 coeur vert|💙 coeur bleu|💜 coeur violet|🖤 coeur noir|🤍 coeur blanc|💔 coeur brise']
+].map(([groupe, liste]) => ({
+  groupe,
+  entrees: liste.split('|').map(x => {
+    const i = x.indexOf(' ');
+    return { emo: x.slice(0, i), lib: x.slice(i + 1), mots: norm(x.slice(i + 1)) };
+  })
+}));
+
+let paletteOuverte = null;
+function fermerPaletteEmoji(){
+  if (!paletteOuverte) return;
+  paletteOuverte.remove();
+  paletteOuverte = null;
+  document.removeEventListener('pointerdown', dehorsPalette, true);
+  document.removeEventListener('keydown', clavierPalette, true);
+  window.removeEventListener('resize', fermerPaletteEmoji);
+  window.removeEventListener('scroll', fermerPaletteEmoji, true);
+}
+function dehorsPalette(e){
+  if (paletteOuverte && !paletteOuverte.contains(e.target) && e.target !== paletteOuverte.ancre)
+    fermerPaletteEmoji();
+}
+function clavierPalette(e){
+  if (e.key === 'Escape'){ e.preventDefault(); const a = paletteOuverte.ancre; fermerPaletteEmoji(); a.focus(); }
+}
+/** Ouvre la palette sous le champ et appelle choisir(emoji) à la sélection. */
+function ouvrirPaletteEmoji(ancre, choisir){
+  fermerPaletteEmoji();
+  const corps = el('div', { class: 'corps' });
+  const recherche = el('input', { type: 'search', placeholder: 'Rechercher : colère, sport, cahier…',
+                                  autocomplete: 'off', spellcheck: 'false' });
+  const boite = el('div', { class: 'palette-emoji' }, [
+    el('div', { class: 'haut' }, recherche),
+    corps,
+    el('div', { class: 'bas' }, [
+      el('span', { texte: 'Windows + . ouvre aussi les émojis du système.' }),
+      el('button', { class: 'btn fantome', onclick: () => { choisir(''); fermerPaletteEmoji(); } },
+        'Aucune icône')
+    ])
+  ]);
+  boite.ancre = ancre;
+  const prendre = emo => { choisir(emo); fermerPaletteEmoji(); };
+  const dessiner = () => {
+    vider(corps);
+    const q = recherche.value.trim();
+    const mots = norm(q);
+    // un émoji collé (ou saisi avec Windows + .) n'a pas de lettres : on le propose tel quel
+    if (q && !mots){
+      corps.appendChild(el('h4', { texte: 'Émoji saisi' }));
+      corps.appendChild(el('div', { class: 'grille' },
+        el('button', { title: 'Utiliser ' + q, onclick: () => prendre(q) }, q)));
+    }
+    let total = 0;
+    EMOJIS_PALETTE.forEach(g => {
+      const trouves = mots ? g.entrees.filter(x => x.mots.includes(mots)) : g.entrees;
+      if (!trouves.length) return;
+      total += trouves.length;
+      corps.appendChild(el('h4', { texte: g.groupe }));
+      corps.appendChild(el('div', { class: 'grille' }, trouves.map(x =>
+        el('button', { title: x.lib, onclick: () => prendre(x.emo) }, x.emo))));
+    });
+    if (!total && !(q && !mots))
+      corps.appendChild(el('div', { class: 'vide-palette', texte: 'Aucun émoji pour « ' + q +' ».' }));
+  };
+  recherche.addEventListener('input', dessiner);
+  recherche.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const premier = corps.querySelector('.grille button');
+    if (premier) premier.click();
+  });
+  dessiner();
+  document.body.appendChild(boite);
+
+  // placement : sous le champ, au-dessus s'il y a plus de place, et la liste
+  // se raccourcit au besoin pour que la palette tienne dans la fenêtre
+  const r = ancre.getBoundingClientRect();
+  const marge = 8;
+  const dessous = window.innerHeight - r.bottom - marge - 6;
+  const dessus = r.top - marge - 6;
+  const enBas = dessous >= 240 || dessous >= dessus;
+  const cadre = boite.offsetHeight - corps.offsetHeight;          // recherche + pied
+  corps.style.maxHeight = Math.max(150, Math.min(290, (enBas ? dessous : dessus) - cadre)) + 'px';
+  boite.style.top = (enBas ? r.bottom + 6 : Math.max(marge, r.top - boite.offsetHeight - 6)) + 'px';
+  boite.style.left = Math.max(marge, Math.min(r.left, window.innerWidth - boite.offsetWidth - marge)) + 'px';
+
+  paletteOuverte = boite;
+  setTimeout(() => {
+    document.addEventListener('pointerdown', dehorsPalette, true);
+    document.addEventListener('keydown', clavierPalette, true);
+    window.addEventListener('resize', fermerPaletteEmoji);
+    window.addEventListener('scroll', fermerPaletteEmoji, true);
+    recherche.focus();
+  }, 0);
+  return boite;
+}
+/** Case d'icône : lecture seule, un clic ouvre la palette. */
+function champEmoji(valeur, surChoix, style){
+  const i = el('input', { type: 'text', class: 'case-emoji', value: valeur || '', readonly: true,
+                          placeholder: '🙂', title: 'Choisir un émoji',
+                          style: Object.assign({ width: '46px', flex: '0 0 auto' }, style || {}) });
+  const ouvrir = () => ouvrirPaletteEmoji(i, emo => { i.value = emo; surChoix(emo); });
+  i.addEventListener('click', ouvrir);
+  i.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); ouvrir(); }
+  });
+  return i;
 }
 function blocVide(emo, titre, texte){
   return el('div', { class: 'vide carte' }, [
@@ -4432,6 +4621,10 @@ const DESC_LISTES = {
 };
 function panneauListes(){
   const z = vider($('#panneau-listes'));
+  z.appendChild(el('p', { class: 'aide', style: { marginBottom: '14px' }, html:
+    'Cliquez sur la <strong>case d\'icône</strong> d\'une ligne pour ouvrir la palette d\'émojis : ' +
+    'elle se cherche en français (« colère », « sport », « cahier »). ' +
+    'Dans la palette, le raccourci <strong>Windows + .</strong> donne accès aux émojis du système.' }));
   Object.keys(DESC_LISTES).forEach(cle => z.appendChild(editeurListe(cle)));
 }
 function editeurListe(cle){
@@ -4447,9 +4640,7 @@ function editeurListe(cle){
     items.forEach((it, i) => {
       const lib = el('input', { type: 'text', value: it.libelle });
       lib.addEventListener('change', () => { items[i].libelle = lib.value.trim() || items[i].libelle; sauver(); });
-      const ic = el('input', { type: 'text', value: it.icone || '', style: { width: '46px', textAlign: 'center',
-                               flex: '0 0 auto' }, title: 'Icône (émoji)', placeholder: '🙂', maxlength: '4' });
-      ic.addEventListener('change', () => { items[i].icone = ic.value.trim(); sauver(); });
+      const ic = champEmoji(it.icone, emo => { items[i].icone = emo; sauver(); });
       const col = el('input', { type: 'color', value: it.couleur || '#6b7789' });
       col.addEventListener('change', () => { items[i].couleur = col.value; sauver(); });
       const extra = [];
