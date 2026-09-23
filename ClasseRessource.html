@@ -271,6 +271,33 @@ html[data-theme="sombre"] .fil .etape.encours{color:#12171f}
 .auto-liste .princ{font-weight:650}
 .auto-liste .sec{font-size:.8rem;color:var(--texte-doux);margin-left:auto}
 
+/* Palette d'émojis (clic sur la case icône d'un réglage) */
+.palette-emoji{
+  position:fixed;z-index:90;width:328px;max-width:calc(100vw - 20px);display:flex;flex-direction:column;
+  background:var(--carte);border:1px solid var(--bordure);border-radius:var(--r);box-shadow:var(--ombre-forte);
+  overflow:hidden;
+}
+.palette-emoji .haut{padding:8px;border-bottom:1px solid var(--bordure)}
+.palette-emoji .haut input{width:100%;padding:8px 10px;font-size:.88rem}
+.palette-emoji .corps{overflow:auto;max-height:290px;padding:4px 8px 10px}
+.palette-emoji h4{
+  font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--texte-doux);margin:10px 0 4px;
+}
+.palette-emoji .grille{display:grid;grid-template-columns:repeat(8,1fr);gap:2px}
+.palette-emoji .grille button{
+  font-size:1.3rem;line-height:1;padding:6px 0;border-radius:8px;
+  font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",var(--police);
+}
+.palette-emoji .grille button:hover{background:var(--bleu-clair)}
+.palette-emoji .bas{
+  display:flex;gap:8px;align-items:center;justify-content:space-between;
+  padding:8px;border-top:1px solid var(--bordure);font-size:.76rem;color:var(--texte-doux);
+}
+.palette-emoji .bas .btn{padding:7px 12px;font-size:.82rem}
+.palette-emoji .vide-palette{padding:18px 4px;text-align:center;color:var(--texte-doux);font-size:.85rem}
+.case-emoji{cursor:pointer;text-align:center;font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",var(--police)}
+
 /* ============================================================
    CONNEXION
    ============================================================ */
@@ -291,6 +318,12 @@ html[data-theme="sombre"] .fil .etape.encours{color:#12171f}
 .boite-connexion .auto input{font-size:1.3rem;padding:17px 19px;text-align:center;font-weight:650;border-width:2px}
 .recents{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:18px}
 .recents .btn{background:var(--carte);border:1px solid var(--bordure)}
+.recent{display:flex}
+.recent .nom{border-top-right-radius:0;border-bottom-right-radius:0;border-right:0}
+.recent .retirer{border-top-left-radius:0;border-bottom-left-radius:0;
+  padding:11px 11px;color:var(--texte-doux);font-size:.8rem}
+.recent .retirer:hover{background:var(--rouge-clair);color:var(--rouge)}
+.aide-recents{margin-top:8px;font-size:.78rem;color:var(--texte-doux)}
 .pied-connexion{margin-top:26px;font-size:.8rem;color:var(--texte-doux)}
 
 /* ============================================================
@@ -432,6 +465,7 @@ html[data-theme="sombre"] .notif{background:#fff;color:#12171f}
     </div>
 
     <div class="recents" id="profs-recents"></div>
+    <p class="aide-recents" id="aide-recents"></p>
 
     <div id="zone-dossier-connexion"></div>
 
@@ -593,7 +627,7 @@ html[data-theme="sombre"] .notif{background:#fff;color:#12171f}
 /* Repère de version : affiché sur l'écran d'accueil et dans les Réglages.
    S'il ne correspond pas au fichier livré, le navigateur sert une copie en cache
    (recharger avec Ctrl+Maj+R). */
-const VERSION = '10 du 10/09/2026';
+const VERSION = '11 du 23/09/2026';
 
 /* ============================================================
    1. OUTILS GENERAUX
@@ -2136,6 +2170,187 @@ function champRecherche(placeholder, surSaisie){
   const i = el('input', { type: 'search', placeholder, oninput: () => surSaisie(i.value) });
   return el('div', { style: { marginBottom: '14px', maxWidth: '420px' } }, i);
 }
+/* ---------- Palette d'émojis ----------
+   Aucun navigateur ne sait ouvrir le panneau d'émojis de Windows depuis une
+   page : on propose donc notre propre palette, recherchable en français, et
+   la case reste ouverte au raccourci Windows + . qui écrit dans la recherche. */
+const EMOJIS_PALETTE = [
+  ['Visages et émotions',
+   '🙂 sourire content|😀 rire joie|😃 sourire joie|😄 rire heureux|😁 sourire dents|😊 content timide|' +
+   '😉 clin oeil complice|🙃 ironie|😅 soulagement gene|🤗 calin accueil|🥰 affection coeur|😍 admiration|' +
+   '🤩 impressionne etoiles|😎 lunettes fier|🥳 fete bravo|😇 sage aureole|🤭 rire discret|🤫 chut silence|' +
+   '🤔 reflexion pense|🤨 doute sourcil|😐 neutre|😑 blase|🙄 agace yeux au ciel|😏 malice|😶 muet silence|' +
+   '🤐 bouche cousue|😴 dort sommeil|🥱 baille fatigue|😪 fatigue endormi|🤒 malade fievre|🤕 blesse bobo|' +
+   '🤢 degout nausee|🥵 chaud|🥶 froid|😥 inquiet triste|😢 pleure triste|😭 chagrin pleure fort|' +
+   '😤 colere vapeur|😠 fache colere|😡 colere rouge|🤬 insulte grossier|😳 gene surprise|🥺 supplie|' +
+   '😬 grimace malaise|😰 stress angoisse|😨 peur|😱 panique cri|🤯 depasse tete explose'],
+  ['Personnes et gestes',
+   '👋 bonjour salut|🤝 accord poignee de main|👍 pouce oui bravo|👎 pouce non|👏 applaudit bravo|' +
+   '🙌 hourra bravo|🙏 merci priere|✋ stop main|👌 parfait ok|✌️ paix victoire|🤞 chance doigts croises|' +
+   '💪 force courage|👦 garcon|👧 fille|🧒 enfant|👩 femme|👨 homme|🧑 personne|👪 famille|👥 groupe eleves|' +
+   '🚶 marche deplacement|🏃 court urgence|🧘 calme detente|💤 repos dodo'],
+  ['École et travail',
+   '🎓 diplome eleve etudes|🏫 ecole college|🎒 cartable sac|📚 livres lecture|📖 livre ouvert lecture|' +
+   '📕 livre rouge|📒 cahier|📝 devoir ecrire|✏️ crayon ecrire|🖊️ stylo|🖍️ feutre couleur|📐 geometrie regle|' +
+   '📏 regle mesure|✂️ ciseaux|🧮 calcul maths boulier|🔢 chiffres nombres maths|🔤 lettres francais|' +
+   '🗂️ classeur dossiers|📁 dossier|📄 feuille document|📋 liste presse papier|📌 punaise|📎 trombone|' +
+   '🗒️ bloc notes|📊 statistiques graphique|📈 progres hausse|📉 baisse|🗓️ calendrier agenda|📅 date calendrier|' +
+   '🕐 heure horloge|⏰ retard reveil|⏳ temps sablier|🔔 sonnerie cloche|🔕 silence cloche barree|' +
+   '💻 ordinateur portable|🖥️ ordinateur|⌨️ clavier|🖨️ imprimante|🔍 recherche loupe|💡 idee ampoule|' +
+   '🧠 cerveau reflexion'],
+  ['Objets et lieux',
+   '🏠 maison|🚪 porte sortie|🪑 chaise place|🏥 infirmerie sante|🩹 pansement soin|🩺 infirmier sante|' +
+   '💊 medicament|🚑 urgence ambulance|🚻 toilettes|🍽️ cantine repas|☕ pause cafe|☎️ telephone|' +
+   '📞 appel telephone|📱 portable telephone|✉️ courrier message|📣 annonce porte voix|📢 annonce|🔑 cle|' +
+   '🔒 ferme cadenas|🔓 ouvert cadenas|🧰 outils boite|🧹 rangement menage|🧴 gel hygiene|🧼 savon hygiene|' +
+   '🎧 casque audio|🎵 musique|🎨 arts plastiques dessin|🖌️ pinceau peinture|🎭 theatre|🎬 video film|' +
+   '📷 photo|🔦 lampe torche'],
+  ['Activités et sport',
+   '⚽ football sport|🏀 basket sport|🏐 volley sport|🏓 ping pong tennis de table|🏸 badminton|' +
+   '🤸 gymnastique eps|🏊 natation piscine|🚴 velo|🥇 medaille premier|🏆 trophee reussite|🎯 objectif cible|' +
+   '🎲 jeu de|🧩 puzzle jeu|🎮 jeu video|🃏 carte jeu|🪁 cerf volant'],
+  ['Nature et animaux',
+   '🌞 soleil|🌙 lune soir|⭐ etoile|🌟 etoile brillante|✨ etincelles|🔥 feu urgent|💧 eau goutte|' +
+   '🌈 arc en ciel|🌱 pousse progres|🌳 arbre|🌻 fleur tournesol|🍀 chance trefle|🐶 chien|🐱 chat|🐭 souris|' +
+   '🦊 renard|🐢 tortue lent|🐌 escargot lent|🦋 papillon|🐝 abeille|🦉 hibou sage|🐧 pingouin'],
+  ['Nourriture',
+   '🍎 pomme fruit|🍏 pomme verte|🍌 banane|🍓 fraise|🥕 carotte legume|🍞 pain|🥐 croissant|🧀 fromage|' +
+   '🍫 chocolat|🍪 biscuit gateau|🍰 part de gateau|🎂 anniversaire gateau|🍬 bonbon|🥤 boisson|🥛 lait'],
+  ['Symboles',
+   '✅ valide fait|☑️ case cochee|✔️ coche valide|❌ erreur non croix|⛔ interdit|🚫 interdit barre|' +
+   '⚠️ attention danger|❗ important exclamation|❓ question|💬 parole message|🗨️ bulle parole|💭 pensee bulle|' +
+   '➕ plus ajouter|➖ moins retirer|➡️ fleche droite|⬅️ fleche gauche|⬆️ fleche haut|⬇️ fleche bas|' +
+   '🔄 recommence retour|🔁 repetition|🔝 haut top|🆗 ok|🆕 nouveau|♻️ recyclage|💯 cent parfait|' +
+   '🔵 rond bleu|🟢 rond vert|🟡 rond jaune|🟠 rond orange|🔴 rond rouge|🟣 rond violet|⚫ rond noir|' +
+   '⚪ rond blanc|🟥 carre rouge|🟩 carre vert|🟦 carre bleu|🟨 carre jaune|❤️ coeur rouge|🧡 coeur orange|' +
+   '💛 coeur jaune|💚 coeur vert|💙 coeur bleu|💜 coeur violet|🖤 coeur noir|🤍 coeur blanc|💔 coeur brise']
+].map(([groupe, liste]) => ({
+  groupe,
+  entrees: liste.split('|').map(x => {
+    const i = x.indexOf(' ');
+    return { emo: x.slice(0, i), lib: x.slice(i + 1), mots: norm(x.slice(i + 1)) };
+  })
+}));
+
+let paletteOuverte = null;
+function fermerPaletteEmoji(){
+  if (!paletteOuverte) return;
+  paletteOuverte.remove();
+  paletteOuverte = null;
+  document.removeEventListener('pointerdown', dehorsPalette, true);
+  document.removeEventListener('keydown', clavierPalette, true);
+  window.removeEventListener('resize', suivrePalette);
+  window.removeEventListener('scroll', suivrePalette, true);
+}
+/* Quand la page défile, la palette suit sa case au lieu de se fermer : sous
+   Windows, la molette fait encore glisser la page un instant après le clic,
+   et une fermeture au premier défilement la faisait disparaître aussitôt
+   ouverte. Le défilement de la liste d'émojis elle-même est ignoré. On ne
+   ferme que si la case sort de l'écran ou disparaît. */
+function suivrePalette(e){
+  if (!paletteOuverte) return;
+  if (e && e.target instanceof Node && paletteOuverte.contains(e.target)) return;
+  const a = paletteOuverte.ancre;
+  const barre = document.querySelector('.barre');
+  const plafond = barre && barre.offsetParent ? barre.getBoundingClientRect().bottom : 0;
+  const r = a.getBoundingClientRect();
+  if (!a.isConnected || r.bottom < plafond || r.top > window.innerHeight){ fermerPaletteEmoji(); return; }
+  placerPalette(paletteOuverte);
+}
+/** Sous la case, au-dessus s'il y a plus de place ; la liste se raccourcit
+    au besoin pour que la palette tienne dans la fenêtre. */
+function placerPalette(boite){
+  const r = boite.ancre.getBoundingClientRect(), corps = boite.corps;
+  const marge = 8;
+  const dessous = window.innerHeight - r.bottom - marge - 6;
+  const dessus = r.top - marge - 6;
+  const enBas = dessous >= 240 || dessous >= dessus;
+  const cadre = boite.offsetHeight - corps.offsetHeight;          // recherche + pied
+  corps.style.maxHeight = Math.max(150, Math.min(290, (enBas ? dessous : dessus) - cadre)) + 'px';
+  boite.style.top = (enBas ? r.bottom + 6 : Math.max(marge, r.top - boite.offsetHeight - 6)) + 'px';
+  boite.style.left = Math.max(marge, Math.min(r.left, window.innerWidth - boite.offsetWidth - marge)) + 'px';
+}
+function dehorsPalette(e){
+  if (paletteOuverte && !paletteOuverte.contains(e.target) && e.target !== paletteOuverte.ancre)
+    fermerPaletteEmoji();
+}
+function clavierPalette(e){
+  if (e.key === 'Escape'){ e.preventDefault(); const a = paletteOuverte.ancre; fermerPaletteEmoji(); a.focus(); }
+}
+/** Ouvre la palette sous le champ et appelle choisir(emoji) à la sélection. */
+function ouvrirPaletteEmoji(ancre, choisir){
+  fermerPaletteEmoji();
+  const corps = el('div', { class: 'corps' });
+  const recherche = el('input', { type: 'search', placeholder: 'Rechercher : colère, sport, cahier…',
+                                  autocomplete: 'off', spellcheck: 'false' });
+  const boite = el('div', { class: 'palette-emoji' }, [
+    el('div', { class: 'haut' }, recherche),
+    corps,
+    el('div', { class: 'bas' }, [
+      el('span', { texte: 'Windows + . ouvre aussi les émojis du système.' }),
+      el('button', { class: 'btn fantome', onclick: () => { choisir(''); fermerPaletteEmoji(); } },
+        'Aucune icône')
+    ])
+  ]);
+  boite.ancre = ancre;
+  boite.corps = corps;
+  const prendre = emo => { choisir(emo); fermerPaletteEmoji(); };
+  const dessiner = () => {
+    vider(corps);
+    const q = recherche.value.trim();
+    const mots = norm(q);
+    // un émoji collé (ou saisi avec Windows + .) n'a pas de lettres : on le propose tel quel
+    if (q && !mots){
+      corps.appendChild(el('h4', { texte: 'Émoji saisi' }));
+      corps.appendChild(el('div', { class: 'grille' },
+        el('button', { title: 'Utiliser ' + q, onclick: () => prendre(q) }, q)));
+    }
+    let total = 0;
+    EMOJIS_PALETTE.forEach(g => {
+      const trouves = mots ? g.entrees.filter(x => x.mots.includes(mots)) : g.entrees;
+      if (!trouves.length) return;
+      total += trouves.length;
+      corps.appendChild(el('h4', { texte: g.groupe }));
+      corps.appendChild(el('div', { class: 'grille' }, trouves.map(x =>
+        el('button', { title: x.lib, onclick: () => prendre(x.emo) }, x.emo))));
+    });
+    if (!total && !(q && !mots))
+      corps.appendChild(el('div', { class: 'vide-palette', texte: 'Aucun émoji pour « ' + q +' ».' }));
+  };
+  recherche.addEventListener('input', dessiner);
+  recherche.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const premier = corps.querySelector('.grille button');
+    if (premier) premier.click();
+  });
+  dessiner();
+  document.body.appendChild(boite);
+
+  placerPalette(boite);
+
+  paletteOuverte = boite;
+  setTimeout(() => {
+    document.addEventListener('pointerdown', dehorsPalette, true);
+    document.addEventListener('keydown', clavierPalette, true);
+    window.addEventListener('resize', suivrePalette);
+    window.addEventListener('scroll', suivrePalette, true);
+    recherche.focus({ preventScroll: true });
+  }, 0);
+  return boite;
+}
+/** Case d'icône : lecture seule, un clic ouvre la palette. */
+function champEmoji(valeur, surChoix, style){
+  const i = el('input', { type: 'text', class: 'case-emoji', value: valeur || '', readonly: true,
+                          placeholder: '🙂', title: 'Choisir un émoji',
+                          style: Object.assign({ width: '46px', flex: '0 0 auto' }, style || {}) });
+  const ouvrir = () => ouvrirPaletteEmoji(i, emo => { i.value = emo; surChoix(emo); });
+  i.addEventListener('click', ouvrir);
+  i.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); ouvrir(); }
+  });
+  return i;
+}
 function blocVide(emo, titre, texte){
   return el('div', { class: 'vide carte' }, [
     el('span', { class: 'emo', texte: emo }),
@@ -2152,10 +2367,27 @@ const SESSION = { profsTemporaires: [] };
 function recents(){
   try { return JSON.parse(CLES.lire('cr_recents') || '[]'); } catch(e){ return []; }
 }
+const MAX_RECENTS = 10;          // raccourcis gardés sur l'écran d'accueil
 function ajouterRecent(p){
-  const l = recents().filter(x => norm(x.nom + x.prenom) !== norm(p.nom + p.prenom));
+  const l = recents().filter(x => !memeRaccourci(x, p));
   l.unshift({ nom: p.nom, prenom: p.prenom, id: p.id || null });
-  CLES.ecrire('cr_recents', JSON.stringify(l.slice(0, 5)));
+  CLES.ecrire('cr_recents', JSON.stringify(l.slice(0, MAX_RECENTS)));
+}
+/** Même enseignant ? L'identifiant prime, pour survivre à une correction du nom. */
+function memeRaccourci(a, b){
+  if (a.id && b.id) return a.id === b.id;
+  return norm(a.nom + ' ' + a.prenom) === norm(b.nom + ' ' + b.prenom);
+}
+/** Retire un raccourci de l'écran d'accueil de CE poste. */
+function retirerRecent(p){
+  const l = recents(), reste = l.filter(x => !memeRaccourci(x, p));
+  if (reste.length !== l.length) CLES.ecrire('cr_recents', JSON.stringify(reste));
+  return l.length - reste.length;
+}
+function viderRecents(){ CLES.ecrire('cr_recents', '[]'); }
+/** Enseignant de la liste partagée correspondant à un raccourci, s'il existe encore. */
+function profDuRaccourci(p){
+  return profsTries().find(x => memeRaccourci(x, p)) || null;
 }
 /** "LE GOFF Marie" -> {nom:'LE GOFF', prenom:'Marie'} */
 function decouperNom(saisie){
@@ -2180,6 +2412,51 @@ function sourceProfsConnexion(){
   });
   return sortie;
 }
+/* Raccourcis de l'écran d'accueil : ils vivent dans le navigateur de ce poste
+   (et nulle part ailleurs), alors que la fiche de l'enseignant est partagée
+   dans le dossier de données. On distingue donc clairement les deux gestes. */
+function modaleRetirerRaccourci(raccourci){
+  const connu = profDuRaccourci(raccourci);
+  const nom = libelleProf(connu || raccourci);
+  const envois = connu
+    ? Array.from(ETAT.passages.values()).filter(x => x.envoyePar && x.envoyePar.profId === connu.id).length
+    : 0;
+  const boutons = [{ texte: 'Annuler' }];
+  if (connu) boutons.push({ texte: "Supprimer aussi l'enseignant", gauche: true, classe: 'danger',
+    action: async f => {
+      const ok = await confirmer('Supprimer ' + nom + ' de la liste des enseignants ?',
+        envois ? 'Ses <strong>' + envois + '</strong> envoi(s) déjà enregistrés restent dans l\'historique. '
+               + 'La suppression vaut pour <strong>tous les postes</strong>.'
+               : 'La suppression vaut pour <strong>tous les postes</strong>.',
+        'Supprimer', 'Annuler', 'danger');
+      if (!ok) return;
+      enregistrer('prof', { id: connu.id, supprime: true });
+      retirerRecent(raccourci);
+      f(); initConnexion();
+      notifier(nom + ' a été supprimé de la liste des enseignants.', 'succes', 4000);
+    } });
+  boutons.push({ texte: 'Retirer le raccourci', classe: 'principal', action: f => {
+    retirerRecent(raccourci);
+    f(); initConnexion();
+    notifier('Raccourci retiré de cet ordinateur.', 'succes');
+  } });
+  ouvrirModale({
+    titre: 'Retirer ' + nom + ' ?', autofocus: false,
+    contenu: el('div', null, [
+      el('p', { style: { marginTop: '0' }, html:
+        '<strong>Retirer le raccourci</strong> enlève seulement le bouton de cet écran, ' +
+        'sur <strong>cet ordinateur</strong>. ' + (connu
+          ? 'L\'enseignant reste dans la liste partagée et pourra toujours être saisi au clavier.'
+          : 'Cet enseignant ne figure plus dans la liste partagée : seul le bouton subsistait.') }),
+      el('p', { class: 'aide', html: (connu
+        ? '<strong>Supprimer aussi l\'enseignant</strong> le retire de la liste partagée, sur tous ' +
+          'les postes — à réserver aux saisies erronées.' +
+          (envois ? ' Ses <strong>' + envois + '</strong> envoi(s) resteront dans l\'historique.' : '') + ' '
+        : '') + 'La liste complète se gère dans <strong>Réglages ▸ Enseignants</strong>.' })
+    ]),
+    boutons
+  });
+}
 let connexionBranchee = null;
 function initConnexion(){
   const champ = $('#saisie-prof');
@@ -2195,14 +2472,19 @@ function initConnexion(){
     $('#btn-entrer').addEventListener('click', validerSaisieProf);
   }
   const zone = vider($('#profs-recents'));
-  recents().forEach(p => {
-    zone.appendChild(el('button', {
-      class: 'btn', onclick: () => {
-        const exact = profsTries().find(x => norm(libelleProf(x)) === norm(libelleProf(p)));
-        connecter(exact || p);
-      }
-    }, libelleProf(p)));
+  const raccourcis = recents();
+  raccourcis.forEach(p => {
+    const connu = profDuRaccourci(p);          // suit une éventuelle correction du nom
+    const nom = libelleProf(connu || p);
+    zone.appendChild(el('div', { class: 'recent' }, [
+      el('button', { class: 'btn nom', onclick: () => connecter(connu || p) }, nom),
+      el('button', { class: 'btn retirer', title: 'Retirer « ' + nom + ' » de cet écran',
+                     'aria-label': 'Retirer ' + nom, onclick: () => modaleRetirerRaccourci(p) }, '✕')
+    ]));
   });
+  $('#aide-recents').textContent = raccourcis.length
+    ? 'Raccourcis mémorisés sur cet ordinateur — ✕ pour faire le tri.'
+    : '';
   majZoneDossierConnexion();
   majDiagnostic();
   $('#info-stockage-connexion').innerHTML =
@@ -3950,11 +4232,13 @@ function panneauDonnees(){
       } }, 'Purger les passages avant une date'),
       el('button', { class: 'btn danger', onclick: async () => {
         const ok = await confirmer('Tout effacer sur ce poste ?',
-          'Les données de <strong>ce navigateur</strong> seront effacées. Les journaux déjà écrits ' +
-          'dans le dossier partagé seront relus au prochain démarrage.', 'Tout effacer', 'Annuler', 'danger');
+          'Les données de <strong>ce navigateur</strong> seront effacées, y compris les raccourcis ' +
+          'de l\'écran d\'accueil. Les journaux déjà écrits dans le dossier partagé seront relus ' +
+          'au prochain démarrage.', 'Tout effacer', 'Annuler', 'danger');
         if (!ok) return;
         ETAT.evenements.clear(); recalculer();
         if (BDD) { try { BDD.transaction('journal', 'readwrite').objectStore('journal').clear(); } catch(e){} }
+        viderRecents();
         notifier('Données locales effacées.');
         rafraichirEcranCourant();
       } }, 'Effacer les données de ce poste')
@@ -4304,8 +4588,11 @@ function panneauProfs(){
           el('td', null, el('div', { style: { display: 'flex', gap: '5px' } }, [
             el('button', { class: 'btn petit', onclick: () => editerProf(p, dessiner) }, 'Modifier'),
             el('button', { class: 'btn petit danger', onclick: async () => {
-              if (await confirmer('Supprimer ' + libelleProf(p) + ' ?', '', 'Supprimer', 'Annuler', 'danger')){
-                enregistrer('prof', { id: p.id, supprime: true }); dessiner();
+              if (await confirmer('Supprimer ' + libelleProf(p) + ' ?',
+                  'Le raccourci de l\'écran d\'accueil de ce poste est retiré en même temps.',
+                  'Supprimer', 'Annuler', 'danger')){
+                enregistrer('prof', { id: p.id, supprime: true });
+                retirerRecent(p); dessiner();
               }
             } }, '✕')
           ]))
@@ -4353,6 +4640,10 @@ const DESC_LISTES = {
 };
 function panneauListes(){
   const z = vider($('#panneau-listes'));
+  z.appendChild(el('p', { class: 'aide', style: { marginBottom: '14px' }, html:
+    'Cliquez sur la <strong>case d\'icône</strong> d\'une ligne pour ouvrir la palette d\'émojis : ' +
+    'elle se cherche en français (« colère », « sport », « cahier »). ' +
+    'Dans la palette, le raccourci <strong>Windows + .</strong> donne accès aux émojis du système.' }));
   Object.keys(DESC_LISTES).forEach(cle => z.appendChild(editeurListe(cle)));
 }
 function editeurListe(cle){
@@ -4368,9 +4659,7 @@ function editeurListe(cle){
     items.forEach((it, i) => {
       const lib = el('input', { type: 'text', value: it.libelle });
       lib.addEventListener('change', () => { items[i].libelle = lib.value.trim() || items[i].libelle; sauver(); });
-      const ic = el('input', { type: 'text', value: it.icone || '', style: { width: '46px', textAlign: 'center',
-                               flex: '0 0 auto' }, title: 'Icône (émoji)', placeholder: '🙂', maxlength: '4' });
-      ic.addEventListener('change', () => { items[i].icone = ic.value.trim(); sauver(); });
+      const ic = champEmoji(it.icone, emo => { items[i].icone = emo; sauver(); });
       const col = el('input', { type: 'color', value: it.couleur || '#6b7789' });
       col.addEventListener('change', () => { items[i].couleur = col.value; sauver(); });
       const extra = [];
