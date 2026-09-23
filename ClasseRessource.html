@@ -627,7 +627,7 @@ html[data-theme="sombre"] .notif{background:#fff;color:#12171f}
 /* Repère de version : affiché sur l'écran d'accueil et dans les Réglages.
    S'il ne correspond pas au fichier livré, le navigateur sert une copie en cache
    (recharger avec Ctrl+Maj+R). */
-const VERSION = '10 du 10/09/2026';
+const VERSION = '11 du 23/09/2026';
 
 /* ============================================================
    1. OUTILS GENERAUX
@@ -2239,8 +2239,36 @@ function fermerPaletteEmoji(){
   paletteOuverte = null;
   document.removeEventListener('pointerdown', dehorsPalette, true);
   document.removeEventListener('keydown', clavierPalette, true);
-  window.removeEventListener('resize', fermerPaletteEmoji);
-  window.removeEventListener('scroll', fermerPaletteEmoji, true);
+  window.removeEventListener('resize', suivrePalette);
+  window.removeEventListener('scroll', suivrePalette, true);
+}
+/* Quand la page défile, la palette suit sa case au lieu de se fermer : sous
+   Windows, la molette fait encore glisser la page un instant après le clic,
+   et une fermeture au premier défilement la faisait disparaître aussitôt
+   ouverte. Le défilement de la liste d'émojis elle-même est ignoré. On ne
+   ferme que si la case sort de l'écran ou disparaît. */
+function suivrePalette(e){
+  if (!paletteOuverte) return;
+  if (e && e.target instanceof Node && paletteOuverte.contains(e.target)) return;
+  const a = paletteOuverte.ancre;
+  const barre = document.querySelector('.barre');
+  const plafond = barre && barre.offsetParent ? barre.getBoundingClientRect().bottom : 0;
+  const r = a.getBoundingClientRect();
+  if (!a.isConnected || r.bottom < plafond || r.top > window.innerHeight){ fermerPaletteEmoji(); return; }
+  placerPalette(paletteOuverte);
+}
+/** Sous la case, au-dessus s'il y a plus de place ; la liste se raccourcit
+    au besoin pour que la palette tienne dans la fenêtre. */
+function placerPalette(boite){
+  const r = boite.ancre.getBoundingClientRect(), corps = boite.corps;
+  const marge = 8;
+  const dessous = window.innerHeight - r.bottom - marge - 6;
+  const dessus = r.top - marge - 6;
+  const enBas = dessous >= 240 || dessous >= dessus;
+  const cadre = boite.offsetHeight - corps.offsetHeight;          // recherche + pied
+  corps.style.maxHeight = Math.max(150, Math.min(290, (enBas ? dessous : dessus) - cadre)) + 'px';
+  boite.style.top = (enBas ? r.bottom + 6 : Math.max(marge, r.top - boite.offsetHeight - 6)) + 'px';
+  boite.style.left = Math.max(marge, Math.min(r.left, window.innerWidth - boite.offsetWidth - marge)) + 'px';
 }
 function dehorsPalette(e){
   if (paletteOuverte && !paletteOuverte.contains(e.target) && e.target !== paletteOuverte.ancre)
@@ -2265,6 +2293,7 @@ function ouvrirPaletteEmoji(ancre, choisir){
     ])
   ]);
   boite.ancre = ancre;
+  boite.corps = corps;
   const prendre = emo => { choisir(emo); fermerPaletteEmoji(); };
   const dessiner = () => {
     vider(corps);
@@ -2298,25 +2327,15 @@ function ouvrirPaletteEmoji(ancre, choisir){
   dessiner();
   document.body.appendChild(boite);
 
-  // placement : sous le champ, au-dessus s'il y a plus de place, et la liste
-  // se raccourcit au besoin pour que la palette tienne dans la fenêtre
-  const r = ancre.getBoundingClientRect();
-  const marge = 8;
-  const dessous = window.innerHeight - r.bottom - marge - 6;
-  const dessus = r.top - marge - 6;
-  const enBas = dessous >= 240 || dessous >= dessus;
-  const cadre = boite.offsetHeight - corps.offsetHeight;          // recherche + pied
-  corps.style.maxHeight = Math.max(150, Math.min(290, (enBas ? dessous : dessus) - cadre)) + 'px';
-  boite.style.top = (enBas ? r.bottom + 6 : Math.max(marge, r.top - boite.offsetHeight - 6)) + 'px';
-  boite.style.left = Math.max(marge, Math.min(r.left, window.innerWidth - boite.offsetWidth - marge)) + 'px';
+  placerPalette(boite);
 
   paletteOuverte = boite;
   setTimeout(() => {
     document.addEventListener('pointerdown', dehorsPalette, true);
     document.addEventListener('keydown', clavierPalette, true);
-    window.addEventListener('resize', fermerPaletteEmoji);
-    window.addEventListener('scroll', fermerPaletteEmoji, true);
-    recherche.focus();
+    window.addEventListener('resize', suivrePalette);
+    window.addEventListener('scroll', suivrePalette, true);
+    recherche.focus({ preventScroll: true });
   }, 0);
   return boite;
 }
