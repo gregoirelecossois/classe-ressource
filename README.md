@@ -75,17 +75,23 @@ Les autres postes basculent d'eux-mêmes à leur lancement suivant. On peut auss
   *Réessayer*.
 - Aucun fichier HTML n'est nécessaire à côté de l'exe : l'application est intégrée dedans.
   Le dossier de l'application ne contient donc que `ClasseRessource.exe` et les dossiers
-  d'année. (`ClasseRessource.html` reste disponible dans ce dépôt et fonctionne seul, par
+  d'année. (`source/ClasseRessource.html` reste disponible dans ce dépôt et fonctionne seul, par
   double-clic avec demande d'autorisation de Chrome, en cas de secours.)
 
 ## Pour les développeurs
+
+Organisation du dépôt :
+
+- `ClasseRessource.exe` : l'application à distribuer (le seul fichier utile aux collègues) ;
+- `source/ClasseRessource.html` : le code de l'application (interface, données, statistiques) ;
+- `lanceur/` : le code du lanceur Windows qui enferme la page dans l'exe.
 
 Le lanceur (Go, sans dépendance) est dans `lanceur/`. Il sert la page sur
 `http://127.0.0.1:47811` et lit/écrit les fichiers du dossier de données à la place du
 navigateur ; la page imite pour cela les poignées de dossier de Chrome
 (`DossierLanceur` / `FichierLanceur`), le reste du code étant identique dans les deux modes.
 
-Reconstruire l'exécutable après une modification de `ClasseRessource.html` :
+Reconstruire l'exécutable après une modification de `source/ClasseRessource.html` :
 
 ```bash
 ./lanceur/construire.sh
