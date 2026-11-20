@@ -627,7 +627,7 @@ html[data-theme="sombre"] .notif{background:#fff;color:#12171f}
 /* Repère de version : affiché sur l'écran d'accueil et dans les Réglages.
    S'il ne correspond pas au fichier livré, le navigateur sert une copie en cache
    (recharger avec Ctrl+Maj+R). */
-const VERSION = '11 du 23/09/2026';
+const VERSION = '12 du 20/11/2026';
 
 /* ============================================================
    1. OUTILS GENERAUX
@@ -1569,9 +1569,155 @@ function bddLire(magasin, cle){
   });
 }
 
+/* ---------- Lanceur ClasseRessource.exe ----------
+   Ouverte par ClasseRessource.exe, la page dialogue avec un petit serveur local
+   (127.0.0.1) qui lit et écrit lui-même le dossier de données : Chrome n'a
+   alors AUCUNE autorisation à demander. Les objets ci-dessous imitent les
+   « poignées » de dossier de Chrome : le reste du code fonctionne à l'identique,
+   que la page soit ouverte par le lanceur ou directement (double-clic).     */
+const LANCEUR = (window.CR_LANCEUR && /^https?:$/.test(location.protocol)) ? window.CR_LANCEUR : null;
+async function appelLanceur(methode, route, chemin, corps){
+  let r;
+  try {
+    r = await fetch('/api/' + route + '?chemin=' + encodeURIComponent(chemin || ''), {
+      method: methode, headers: { 'X-CR-Jeton': LANCEUR.jeton }, body: corps, cache: 'no-store' });
+  } catch(e){
+    throw new Error('ClasseRessource.exe ne répond plus : fermez la fenêtre et relancez l\'application.');
+  }
+  if (r.ok) return r;
+  let info = {};
+  try { info = await r.json(); } catch(e){ /* réponse non JSON */ }
+  const err = new Error(info.message || ('Erreur ' + r.status));
+  err.name = info.nom || 'Error';
+  throw err;
+}
+function erreurNommee(nom, message){ const e = new Error(message); e.name = nom; return e; }
+class FichierLanceur {
+  constructor(chemin, nom, infos){ this.kind = 'file'; this.chemin = chemin; this.name = nom; this.infos = infos || null; }
+  async queryPermission(){ return 'granted'; }
+  async requestPermission(){ return 'granted'; }
+  async getFile(){
+    let i = this.infos; this.infos = null;            // informations fraîches : servies une fois
+    if (!i) i = await (await appelLanceur('GET', 'stat', this.chemin)).json();
+    const chemin = this.chemin;
+    let contenu = null;
+    const lire = async () => contenu || (contenu = await (await appelLanceur('GET', 'fichier', chemin)).blob());
+    return { name: this.name, size: i.taille, lastModified: i.modif, type: '',
+             text: async () => (await lire()).text(),
+             arrayBuffer: async () => (await lire()).arrayBuffer() };
+  }
+  async createWritable(){
+    const morceaux = [], poignee = this;
+    return {
+      write: async d => { morceaux.push(d && d.type === 'write' ? d.data : d); },
+      close: async () => {
+        const r = await appelLanceur('PUT', 'fichier', poignee.chemin, new Blob(morceaux));
+        poignee.infos = await r.json();
+      },
+      abort: async () => { morceaux.length = 0; }
+    };
+  }
+}
+class DossierLanceur {
+  constructor(chemin, nom){ this.kind = 'directory'; this.chemin = chemin || ''; this.name = nom; }
+  sous(nom){ return this.chemin ? this.chemin + '/' + nom : nom; }
+  async queryPermission(){ return 'granted'; }
+  async requestPermission(){ return 'granted'; }
+  async getDirectoryHandle(nom, o){
+    const creer = !!(o && o.create);
+    const i = await (await appelLanceur(creer ? 'POST' : 'GET', creer ? 'dossier' : 'stat', this.sous(nom))).json();
+    if (!i.dossier) throw erreurNommee('TypeMismatchError', nom + " n'est pas un dossier");
+    return new DossierLanceur(this.sous(nom), nom);
+  }
+  async getFileHandle(nom, o){
+    const c = this.sous(nom);
+    try {
+      const i = await (await appelLanceur('GET', 'stat', c)).json();
+      if (i.dossier) throw erreurNommee('TypeMismatchError', nom + " est un dossier");
+      return new FichierLanceur(c, nom, i);
+    } catch(e){
+      if (e.name !== 'NotFoundError' || !(o && o.create)) throw e;
+      const i = await (await appelLanceur('PUT', 'fichier', c, '')).json();
+      return new FichierLanceur(c, nom, i);
+    }
+  }
+  async *entries(){
+    const l = await (await appelLanceur('GET', 'liste', this.chemin)).json();
+    for (const x of l){
+      yield [x.nom, x.dossier ? new DossierLanceur(this.sous(x.nom), x.nom)
+                              : new FichierLanceur(this.sous(x.nom), x.nom, x)];
+    }
+  }
+}
+const baseLanceur = () => new DossierLanceur('', LANCEUR.nomBase);
+
+/** Dossiers d'année présents dans le dossier du lanceur (lui-même compris). */
+async function dossiersAnnees(){
+  const liste = [];
+  const examiner = async h => {
+    const contenu = new Map();
+    for await (const [n, x] of h.entries()) contenu.set(n, x);
+    let m = null;
+    if (contenu.has('annee.json')){
+      try { m = JSON.parse(await (await contenu.get('annee.json').getFile()).text()); } catch(e){ /* illisible */ }
+    }
+    liste.push({ h, marqueur: (m && m.id && m.annee) ? m : null, donnees: contenu.has('donnees'), contenu });
+  };
+  const base = baseLanceur();
+  await examiner(base);
+  for (const [n, x] of liste[0].contenu){
+    if (x.kind === 'directory' && n !== 'donnees') await examiner(x);
+  }
+  return liste;
+}
+/** Choisit tout seul le dossier de l'année scolaire en cours.
+    Après le 31 juillet, si la nouvelle année n'existe pas encore, on ouvre la
+    précédente : verifierAnnee() propose alors de basculer.                    */
+async function racineLanceur(){
+  const an = anneeScolaire();
+  const liste = await dossiersAnnees();
+  const marques = liste.filter(x => x.marqueur);
+  const courant = marques.find(x => x.marqueur.annee === an);
+  if (courant) return courant.h;
+  // dossier préparé à la main pour cette année, encore vierge
+  const prepare = liste.find(x => !x.marqueur && x.h.chemin && norm(x.h.name).indexOf(norm(an)) >= 0);
+  if (prepare) return prepare.h;
+  if (marques.length){
+    marques.sort((a, b) => (a.marqueur.annee < b.marqueur.annee ? 1 : -1));
+    return marques[0].h;
+  }
+  // dossier d'une version antérieure de l'application (sans marqueur d'année)
+  const ancien = liste.find(x => x.donnees);
+  if (ancien) return ancien.h;
+  // première utilisation : on crée le dossier de l'année
+  return baseLanceur().getDirectoryHandle(nomDossierAttendu(an), { create: true });
+}
+/* Signes de vie : le lanceur s'arrête tout seul quand plus aucune fenêtre n'est ouverte. */
+if (LANCEUR){
+  const page = Math.random().toString(36).slice(2, 10);
+  let injoignable = false;
+  const signe = () => fetch('/api/vie?page=' + page, { method: 'POST', headers: { 'X-CR-Jeton': LANCEUR.jeton } })
+    .then(() => {
+      if (injoignable){ injoignable = false; majEtatSync(); }
+    })
+    .catch(() => {
+      if (injoignable) return;
+      injoignable = true;
+      majEtatSync();
+      notifier("ClasseRessource.exe ne répond plus : fermez cette fenêtre et relancez l'application. " +
+               'Les saisies sont conservées.', 'erreur', 15000);
+    });
+  signe();
+  setInterval(signe, 20000);
+  window.addEventListener('pagehide', () => {
+    try { navigator.sendBeacon('/api/fin?page=' + page + '&jeton=' + encodeURIComponent(LANCEUR.jeton)); } catch(e){ /* ignoré */ }
+  });
+  LANCEUR.injoignable = () => injoignable;
+}
+
 /* ---------- Dossier partagé (File System Access) ---------- */
 const FS = {
-  supporte: typeof window.showDirectoryPicker === 'function',
+  supporte: typeof window.showDirectoryPicker === 'function' || !!LANCEUR,
   racine: null,        // FileSystemDirectoryHandle
   dossier: null,       // sous-dossier "donnees"
   autorise: false,
@@ -1583,10 +1729,14 @@ const FS = {
 const NOM_JOURNAL = () => 'journal-' + POSTE + '.jsonl';
 
 async function memoriserRacine(h){
+  if (LANCEUR) return;              // le lanceur retrouve le dossier tout seul
   try { await bddEcrire('meta', [h], ['dossier']); } catch(e){ /* ignoré */ }
 }
 async function recupererRacine(){
-  try { return await bddLire('meta', 'dossier'); } catch(e){ return null; }
+  try {
+    if (LANCEUR) return await racineLanceur();
+    return await bddLire('meta', 'dossier');
+  } catch(e){ return null; }
 }
 async function verifierPermission(h, demander){
   try {
@@ -1598,6 +1748,7 @@ async function verifierPermission(h, demander){
   return false;
 }
 async function choisirDossier(){
+  if (LANCEUR) return choisirDossierLanceur();
   if (!FS.supporte){
     notifier("Ce navigateur ne gère pas l'écriture directe. Utilisez Chrome ou Edge.", 'erreur', 5000);
     return false;
@@ -1605,7 +1756,17 @@ async function choisirDossier(){
   try {
     const h = await window.showDirectoryPicker({ id: 'classe-ressource', mode: 'readwrite' });
     if (!await verifierPermission(h, true)) return false;
+    return await brancherDossier(h);
+  } catch(e){
+    if (e && e.name !== 'AbortError') notifier('Dossier non accessible : ' + e.message, 'erreur');
+    return false;
+  }
+}
+/** Relie un dossier déjà autorisé et y bascule l'application. */
+async function brancherDossier(h){
+  try {
     FS.racine = h; FS.autorise = true; FS.nomDossier = h.name;
+    FS.empreintes = new Map();
     await memoriserRacine(h);
     await preparerDossier();
     await initialiserAnnee(false);
@@ -1617,6 +1778,7 @@ async function choisirDossier(){
              (FS.marqueur ? ' (' + FS.marqueur.annee + ')' : ''), 'succes');
     return true;
   } catch(e){
+    FS.autorise = false; majEtatSync();
     if (e && e.name !== 'AbortError') notifier('Dossier non accessible : ' + e.message, 'erreur');
     return false;
   }
@@ -1658,6 +1820,12 @@ async function ecrireMarqueur(m){
   await w.close();
   return m;
 }
+/** Emplacement du dossier de données, tel qu'on le montre aux utilisateurs. */
+function cheminDossier(){
+  if (!LANCEUR) return FS.nomDossier;
+  const sep = LANCEUR.base.indexOf('\\') >= 0 ? '\\' : '/';
+  return FS.racine && FS.racine.chemin ? LANCEUR.base + sep + FS.racine.chemin.split('/').join(sep) : LANCEUR.base;
+}
 function definirContexte(id){
   if (ETAT.contexte === id) return false;
   ETAT.contexte = id;
@@ -1697,6 +1865,13 @@ function verifierAnnee(){
   majBandeauAnnee();
   if (!FS.marqueur || FS.marqueur.annee === anneeScolaire()) return false;
   if (modaleDossier) return true;
+  if (FS.consultationVoulue){            // année passée ouverte exprès (Réglages ▸ Données)
+    FS.consultationVoulue = false;
+    ETAT.lectureSeule = true; ETAT.motifLectureSeule = 'annee';
+    majBandeauAnnee();
+    return true;
+  }
+  if (LANCEUR && FS.marqueur.annee < anneeScolaire()) return proposerNouvelleAnnee();
   const contenu = el('div', null, [
     el('p', { style: { margin: '0 0 12px', fontSize: '1.05rem' }, html:
       'Ce dossier contient l\'année scolaire <strong>' + ech(FS.marqueur.annee) + '</strong>, ' +
@@ -1724,6 +1899,128 @@ function verifierAnnee(){
   });
   return true;
 }
+/* ---------- Passage automatique à la nouvelle année (lanceur) ----------
+   Après le 31 juillet, si le dossier de la nouvelle année n'existe pas encore,
+   le lanceur ouvre celui de l'année écoulée et l'on propose de basculer.
+   L'année écoulée reste intacte dans son dossier (plus une archive), et la
+   nouvelle année reprend tous les paramétrages.                            */
+function proposerNouvelleAnnee(){
+  const ancienne = FS.marqueur.annee, nouvelle = anneeScolaire();
+  const carte = (titre, couleur, items) => el('div', { class: 'carte pad' }, [
+    el('h3', { texte: titre, style: { color: 'var(--' + couleur + ')', marginBottom: '8px' } }),
+    el('ul', { style: { margin: 0, paddingLeft: '18px', fontSize: '.9rem', lineHeight: '1.6' } },
+      items.map(t => el('li', { html: t })))
+  ]);
+  const contenu = el('div', null, [
+    el('p', { style: { margin: '0 0 14px', fontSize: '1.05rem' }, html:
+      'Nous sommes après le 31 juillet : l\'année scolaire <strong>' + ech(ancienne) + '</strong> est terminée.<br>' +
+      'Voulez-vous passer à l\'année <strong>' + ech(nouvelle) + '</strong> ?' }),
+    el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                         gap: '12px', margin: '0 0 14px' } }, [
+      carte('✓ Conservé', 'vert', [
+        'Toute l\'année <strong>' + ech(ancienne) + '</strong> (élèves, passages, historique, statistiques) ' +
+        'reste dans son dossier, consultable à tout moment dans <em>Réglages ▸ Données</em>',
+        'Une archive (JSON + XLSX) y est ajoutée par sécurité',
+        'Vos paramétrages : motifs, provenances, suites, appréciations, classes, horaires, réglages'
+      ]),
+      carte('↺ Nouvelle année', 'orange', [
+        'Élèves et enseignants : à importer depuis Pronote',
+        'Passages et statistiques repartent de zéro'
+      ])
+    ]),
+    el('p', { class: 'aide', html:
+      'Le dossier <strong>' + ech(nomDossierAttendu(nouvelle)) + '</strong> sera créé automatiquement dans ' +
+      '<code>' + ech(LANCEUR.base) + '</code>. Les autres postes basculeront d\'eux-mêmes à leur prochain lancement.' })
+  ]);
+  let enCours = false;
+  modaleDossier = ouvrirModale({
+    titre: 'Nouvelle année scolaire ' + nouvelle,
+    sousTitre: 'Dossier actuel : « ' + ech(FS.nomDossier) + ' » (' + ech(ancienne) + ')',
+    contenu, largeur: 'large', echapPossible: false, autofocus: false,
+    boutons: [
+      { texte: 'Plus tard (consulter ' + ancienne + ')', gauche: true, action: f => {
+          if (enCours) return;
+          ETAT.lectureSeule = true; ETAT.motifLectureSeule = 'annee';
+          modaleDossier = null; f();
+          majBandeauAnnee(); majDiagnostic(); rafraichirEcranCourant();
+          notifier('Consultation de l\'année ' + ancienne + ' : aucune saisie possible.', 'erreur', 6000);
+        } },
+      { texte: '🎓 Passer en ' + nouvelle, classe: 'principal', action: async f => {
+          if (enCours) return;
+          enCours = true;
+          const ok = await passerNouvelleAnnee(nouvelle);
+          enCours = false;
+          if (ok){ modaleDossier = null; f(); rafraichirEcranCourant(); }
+        } }
+    ]
+  });
+  return true;
+}
+/** Crée le dossier de la nouvelle année dans le dossier du lanceur et y bascule. */
+async function passerNouvelleAnnee(annee){
+  try {
+    const h = await baseLanceur().getDirectoryHandle(nomDossierAttendu(annee), { create: true });
+    // Un autre poste a peut-être déjà fait la bascule : on le rejoint simplement.
+    const ancien = FS.racine;
+    FS.racine = h;
+    const m = await lireMarqueur();
+    FS.racine = ancien;
+    if (m){
+      if (m.annee !== annee){
+        notifier('Le dossier « ' + h.name + ' » contient l\'année ' + m.annee + '.', 'erreur', 7000);
+        return false;
+      }
+      return await brancherDossier(h);
+    }
+    notifier('Archivage de l\'année ' + FS.marqueur.annee + '…');
+    await archiverAnnee(FS.marqueur.annee);
+    await basculerVersDossier(h, annee, null);
+    return !!(FS.marqueur && FS.marqueur.annee === annee && !ETAT.lectureSeule);
+  } catch(e){
+    signalerPanne(e, 'passage à la nouvelle année');
+    return false;
+  }
+}
+/** Liste des années présentes dans le dossier du lanceur, pour en consulter une. */
+async function choisirDossierLanceur(){
+  let liste;
+  try { liste = (await dossiersAnnees()).filter(x => x.marqueur || x.donnees); }
+  catch(e){ notifier('Dossier de données inaccessible : ' + e.message, 'erreur', 7000); return false; }
+  const an = anneeScolaire();
+  const anneeDe = x => (x.marqueur ? x.marqueur.annee : '');
+  liste.sort((a, b) => (anneeDe(a) < anneeDe(b) ? 1 : -1));
+  return new Promise(res => {
+    let repondu = false;
+    const lignes = liste.map(x => {
+      const annee = anneeDe(x) || '?';
+      const ouvert = FS.autorise && FS.racine && FS.racine.chemin === x.h.chemin;
+      return el('div', { class: 'ligne-reglage' }, [
+        el('span', { class: 'puce ' + (annee === an ? 'vert' : 'orange'), texte: annee }),
+        el('span', { style: { flex: '1' },
+                     texte: x.h.chemin ? x.h.name : LANCEUR.nomBase + ' (dossier principal)' }),
+        ouvert ? el('span', { texte: 'ouvert', style: { color: 'var(--texte-doux)', fontSize: '.85rem' } })
+          : el('button', { class: 'btn petit' + (annee === an ? ' principal' : ''), onclick: async () => {
+              repondu = true; m.fermer();
+              FS.consultationVoulue = (annee !== an);
+              res(await brancherDossier(x.h));
+            } }, annee === an ? 'Ouvrir' : 'Consulter')
+      ]);
+    });
+    const m = ouvrirModale({
+      titre: 'Années scolaires',
+      sousTitre: 'Dans ' + ech(LANCEUR.base),
+      auFermer: () => { if (!repondu) res(false); },
+      contenu: el('div', null, [
+        el('p', { class: 'aide', style: { marginTop: '0' }, html:
+          'Les années passées s\'ouvrent en <strong>consultation seule</strong>. ' +
+          'Au prochain lancement, l\'application revient d\'elle-même sur l\'année en cours.' }),
+        el('div', { class: 'liste-reglage' }, lignes.length ? lignes : [el('p', { texte: 'Aucune année trouvée.' })])
+      ]),
+      boutons: [{ texte: 'Fermer' }]
+    });
+  });
+}
+
 /** Bandeau permanent quand on consulte une année archivée. */
 function majBandeauAnnee(){
   const existant = $('#bandeau-annee');
@@ -1755,8 +2052,16 @@ function majBandeauAnnee(){
       : 'Consultation de l\'année ' + (FS.marqueur ? FS.marqueur.annee : '?') +
         ' — aucune saisie ni modification n\'est enregistrée.' }),
     navInadapte ? null : el('button', { class: 'btn petit', style: { marginLeft: 'auto' }, onclick: async () => {
+      if (LANCEUR && FS.marqueur && FS.marqueur.annee < anneeScolaire()){
+        // l'année en cours existe peut-être déjà (créée par un autre poste)
+        const h = await racineLanceur().catch(() => null);
+        if (h && h.chemin !== FS.racine.chemin){ if (await brancherDossier(h)) initConnexion(); }
+        else proposerNouvelleAnnee();
+        return;
+      }
       if (await choisirDossier()) initConnexion();
-    } }, 'Ouvrir le dossier de ' + anneeScolaire())
+    } }, (LANCEUR && FS.marqueur && FS.marqueur.annee < anneeScolaire() ? 'Passer en ' : 'Ouvrir le dossier de ') +
+         anneeScolaire())
   ]), principal.firstChild);
 }
 
@@ -1937,6 +2242,11 @@ function majEtatSync(mode){
   if (!z) return;
   const pt = $('.point', z), tx = $('.txt', z);
   if (mode === 'encours'){ pt.className = 'point attention'; tx.textContent = 'Enregistrement…'; return; }
+  if (LANCEUR && LANCEUR.injoignable && LANCEUR.injoignable()){
+    pt.className = 'point erreur'; tx.textContent = 'Lanceur arrêté';
+    z.title = 'ClasseRessource.exe ne répond plus : fermez la fenêtre et relancez l\'application.';
+    return;
+  }
   if (FS.autorise){
     const an = FS.marqueur ? FS.marqueur.annee : '';
     pt.className = 'point ' + (ETAT.lectureSeule ? 'attention' : 'ok');
@@ -2488,7 +2798,8 @@ function initConnexion(){
   majZoneDossierConnexion();
   majDiagnostic();
   $('#info-stockage-connexion').innerHTML =
-    FS.autorise ? 'Données enregistrées dans le dossier <strong>' + ech(FS.nomDossier) + '</strong>.'
+    FS.autorise ? 'Données enregistrées dans le dossier <strong>' + ech(FS.nomDossier) + '</strong>' +
+                  (FS.marqueur ? ' — année ' + ech(FS.marqueur.annee) : '') + '.'
     : FS.supporte ? 'Dossier de données à choisir : voir le bouton ci-dessus.'
     : 'Avec ce navigateur, <strong>aucune saisie ne sera enregistrée</strong>. ' +
       'Ouvrez ce fichier avec <strong>Chrome</strong> ou <strong>Edge</strong>.';
@@ -2577,6 +2888,7 @@ function modaleNavigateur(){
 let modaleDossier = null;
 async function exigerDossier(){
   if (FS.autorise || FS.sansDossier || modaleDossier) return;
+  if (LANCEUR) return modaleDossierLanceur();
   if (!FS.supporte) return modaleNavigateur();
   let memorise = null;
   try { memorise = await recupererRacine(); } catch(e){ /* aucun souvenir */ }
@@ -2620,6 +2932,36 @@ async function exigerDossier(){
   });
 }
 
+/* Avec le lanceur, le dossier se relie tout seul : si ce n'est pas le cas, il
+   est inaccessible (lecteur réseau déconnecté, droits insuffisants…).       */
+function modaleDossierLanceur(){
+  modaleDossier = ouvrirModale({
+    titre: 'Dossier de données inaccessible',
+    sousTitre: ech(LANCEUR.base),
+    echapPossible: false, autofocus: false,
+    contenu: el('div', null, [
+      el('p', { style: { margin: '0 0 12px', fontSize: '1.02rem' }, html:
+        'L\'application n\'arrive pas à lire ou écrire dans son dossier de données.' }),
+      el('p', { class: 'aide', html:
+        'Vérifiez que le lecteur réseau est bien connecté (ouvrez-le dans l\'Explorateur), puis cliquez sur ' +
+        '<strong>Réessayer</strong>. Si le problème persiste, fermez la fenêtre et relancez ' +
+        '<strong>ClasseRessource.exe</strong>.' })
+    ]),
+    boutons: [
+      { texte: 'Continuer sans dossier', gauche: true, action: async f => {
+          const ok = await confirmer('Travailler sans dossier de données ?',
+            'Les saisies resteront <strong>sur ce poste uniquement</strong> et ne seront pas partagées ' +
+            'avec les autres ordinateurs.', 'Continuer quand même', 'Revenir en arrière');
+          if (ok){ FS.sansDossier = true; modaleDossier = null; f(); majDiagnostic(); }
+        } },
+      { texte: '↻ Réessayer', classe: 'principal', action: async f => {
+          if (await assurerDossier()){ modaleDossier = null; f(); initConnexion(); majDiagnostic(); }
+          else notifier('Dossier toujours inaccessible.', 'erreur');
+        } }
+    ]
+  });
+}
+
 /** Ligne d'état discrète : permet de vérifier d'un coup d'œil ce qui tourne. */
 function majDiagnostic(){
   const z = $('#diagnostic-connexion');
@@ -2638,6 +2980,13 @@ function majDiagnostic(){
 async function majZoneDossierConnexion(){
   const z = vider($('#zone-dossier-connexion'));
   if (!FS.supporte || FS.autorise) return;
+  if (LANCEUR){
+    z.style.marginTop = '22px';
+    z.appendChild(el('button', { class: 'btn principal', onclick: async () => {
+      if (await assurerDossier()) initConnexion(); else notifier('Dossier toujours inaccessible.', 'erreur');
+    } }, '↻ Réessayer d\'ouvrir le dossier de données'));
+    return;
+  }
   const memorise = await recupererRacine();
   z.style.marginTop = '22px';
   if (memorise){
@@ -4125,7 +4474,7 @@ function panneauDonnees(){
     el('h3', { texte: 'Emplacement des données', style: { marginBottom: '10px' } }),
     el('p', { class: 'aide', html:
       FS.autorise
-        ? 'Les saisies sont écrites en continu dans <code>' + ech(FS.nomDossier) + '\\donnees\\' +
+        ? 'Les saisies sont écrites en continu dans <code>' + ech(cheminDossier()) + '\\donnees\\' +
           ech(NOM_JOURNAL()) + '</code>, et un classeur <code>classe-ressource.xlsx</code> est ' +
           'régénéré à côté. Chaque poste écrit son propre journal : aucun risque d\'écraser ' +
           'la saisie d\'un collègue. Une copie de secours reste dans ce navigateur.'
@@ -4138,7 +4487,7 @@ function panneauDonnees(){
           'le partage entre postes ; sinon, exportez régulièrement une sauvegarde.' }),
     el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
       el('button', { class: 'btn principal', onclick: async () => { await choisirDossier(); panneauDonnees(); } },
-        FS.autorise ? 'Changer de dossier' : 'Choisir le dossier de données'),
+        LANCEUR ? '📅 Consulter une autre année' : FS.autorise ? 'Changer de dossier' : 'Choisir le dossier de données'),
       FS.supporte && !FS.autorise ? el('button', { class: 'btn', onclick: async () => {
         const ok = await reconnecterDossier(false);
         if (ok){ await synchroniser(true); await ecrireJournal(); notifier('Dossier reconnecté.', 'succes'); }
@@ -4152,7 +4501,8 @@ function panneauDonnees(){
       } }, 'Actualiser depuis le dossier')
     ]),
     el('p', { style: { marginTop: '12px', fontSize: '.82rem', color: 'var(--texte-doux)' },
-      texte: 'Version ' + VERSION + ' · poste ' + POSTE + ' · mémoire ' + SECOURS.mode + ' · ' +
+      texte: 'Version ' + VERSION + (LANCEUR ? ' · lanceur ' + LANCEUR.version : '') +
+             ' · poste ' + POSTE + ' · mémoire ' + SECOURS.mode + ' · ' +
              ETAT.evenements.size + ' enregistrements · ' + ETAT.passages.size + ' passages' })
   ]);
   z.appendChild(carteEtat);
@@ -4161,7 +4511,7 @@ function panneauDonnees(){
                             borderLeft: '4px solid ' + (ETAT.lectureSeule ? 'var(--orange)' : 'var(--vert)') } }, [
     el('h3', { texte: 'Année scolaire', style: { marginBottom: '10px' } }),
     el('p', { class: 'aide', html: FS.marqueur
-      ? 'Dossier en cours : <strong>' + ech(FS.nomDossier) + '</strong> — année <strong>' +
+      ? 'Dossier en cours : <strong>' + ech(cheminDossier()) + '</strong> — année <strong>' +
         ech(FS.marqueur.annee) + '</strong>' +
         (ETAT.lectureSeule
           ? ".<br><strong>Consultation seule</strong> : ce dossier n'est pas celui de " + anneeScolaire() + '.'
@@ -4171,7 +4521,8 @@ function panneauDonnees(){
       "Démarrer une nouvelle année <strong>ne supprime rien</strong> : l'année écoulée est archivée " +
       "puis reste dans son dossier, consultable en lecture seule. Le nouveau dossier ne reçoit que " +
       "vos paramétrages (motifs, provenances, suites, raccourcis, classes, horaires)." }),
-    el('button', { class: 'btn principal', disabled: !FS.autorise || ETAT.lectureSeule,
+    el('button', { class: 'btn principal',
+      disabled: !FS.autorise || (ETAT.lectureSeule && !(LANCEUR && FS.marqueur && FS.marqueur.annee < anneeScolaire())),
       onclick: assistantNouvelleAnnee }, '🎓 Démarrer une nouvelle année scolaire')
   ]));
 
@@ -4272,8 +4623,10 @@ async function archiverAnnee(annee){
       ecrits.push(nom);
     }
   }
-  telecharger(blobJson, nomJson);          // double sécurité : copie dans Téléchargements
-  telecharger(blobXlsx, nomXlsx);
+  if (!LANCEUR || ecrits.length < 2){
+    telecharger(blobJson, nomJson);        // double sécurité : copie dans Téléchargements
+    telecharger(blobXlsx, nomXlsx);
+  }
   return ecrits;
 }
 
@@ -4283,7 +4636,7 @@ function assistantNouvelleAnnee(){
     return;
   }
   const anneeActuelle = FS.marqueur ? FS.marqueur.annee : anneeScolaire();
-  let cible = anneeSuivante(anneeActuelle);
+  let cible = anneeActuelle < anneeScolaire() ? anneeScolaire() : anneeSuivante(anneeActuelle);
   let archive = false;
   const corps = el('div');
   const m = ouvrirModale({
@@ -4321,14 +4674,16 @@ function assistantNouvelleAnnee(){
 
     corps.appendChild(el('p', { class: 'aide', html:
       '<strong>1.</strong> Archiver l\'année ' + ech(anneeActuelle) + ' (JSON relisible par l\'application + XLSX).<br>' +
-      '<strong>2.</strong> Créer sur le réseau un dossier nommé exactement :' }));
+      (LANCEUR ? '<strong>2.</strong> Le dossier suivant sera créé automatiquement dans <code>' + ech(LANCEUR.base) + '</code> :'
+               : '<strong>2.</strong> Créer sur le réseau un dossier nommé exactement :') }));
     corps.appendChild(el('code', {
       style: { display: 'block', padding: '12px 14px', background: 'var(--gris-50)', border: '1px solid var(--bordure)',
                borderRadius: 'var(--r-s)', fontSize: '1rem', fontWeight: '700', margin: '0 0 10px' },
       texte: nomDossierAttendu(cible) }));
-    corps.appendChild(el('p', { class: 'aide', html:
-      '<strong>3.</strong> Le désigner ci-dessous. L\'ancien dossier n\'est pas modifié : il reste ' +
-      'consultable en lecture seule.' }));
+    corps.appendChild(el('p', { class: 'aide', html: LANCEUR
+      ? 'L\'ancien dossier n\'est pas modifié : il reste consultable en lecture seule.'
+      : '<strong>3.</strong> Le désigner ci-dessous. L\'ancien dossier n\'est pas modifié : il reste ' +
+        'consultable en lecture seule.' }));
 
     m.pied.appendChild(el('div', { class: 'gauche' },
       el('button', { class: 'btn fantome', onclick: () => m.fermer() }, 'Annuler')));
@@ -4344,13 +4699,18 @@ function assistantNouvelleAnnee(){
     m.pied.appendChild(el('button', {
       class: 'btn ' + (archive ? 'succes' : ''), disabled: !archive,
       onclick: () => demarrerAnnee(cible, m)
-    }, '2. Choisir le dossier de ' + cible));
+    }, (LANCEUR ? '2. Créer le dossier de ' : '2. Choisir le dossier de ') + cible));
   }
   dessiner();
 }
 
 async function demarrerAnnee(annee, modale){
   let h;
+  if (LANCEUR){
+    try { h = await baseLanceur().getDirectoryHandle(nomDossierAttendu(annee), { create: true }); }
+    catch(e){ signalerPanne(e, 'création du dossier de ' + annee); return; }
+    return basculerVersDossier(h, annee, modale);
+  }
   try {
     h = await window.showDirectoryPicker({ id: 'classe-ressource-' + annee, mode: 'readwrite' });
   } catch(e){ return; }                       // annulé
@@ -4426,15 +4786,17 @@ async function basculerVersDossier(h, annee, modale){
         el('p', { html: 'Le dossier <strong>' + ech(h.name) + '</strong> est maintenant le dossier de travail.' }),
         el('p', { class: 'aide', html:
           'Vos paramétrages ont été repris. Il reste à <strong>importer les listes d\'élèves et ' +
-          'd\'enseignants</strong> depuis Pronote.<br><br>' +
-          'Pensez à faire <em>Choisir le dossier de données</em> sur <strong>chaque poste</strong> ' +
-          'à la rentrée : les autres postes ouvriront sinon l\'année précédente, et seront bloqués ' +
-          'en lecture seule.' })
+          'd\'enseignants</strong> depuis Pronote' + (ETAT.profActif ? '' : ' (Réglages ▸ Élèves, après vous être identifié)') +
+          '.<br><br>' + (LANCEUR
+          ? 'Les autres postes passeront d\'eux-mêmes sur ' + ech(annee) + ' à leur prochain lancement.'
+          : 'Pensez à faire <em>Choisir le dossier de données</em> sur <strong>chaque poste</strong> ' +
+            'à la rentrée : les autres postes ouvriront sinon l\'année précédente, et seront bloqués ' +
+            'en lecture seule.') })
       ]),
-      boutons: [
+      boutons: ETAT.profActif ? [
         { texte: 'Importer les élèves', action: f => { f(); UI.panneauReglage = 'eleves'; rendreReglages(); assistantImport('eleves'); } },
         { texte: 'Fermer', classe: 'principal' }
-      ]
+      ] : [{ texte: 'Continuer', classe: 'principal' }]
     });
     notifier('Nouvelle année ' + annee + ' : ' + ETAT.passages.size + ' passage(s), ' +
              ETAT.eleves.size + ' élève(s).', 'succes', 6000);
@@ -5117,6 +5479,7 @@ async function demarrer(){
   // on écrit ce qui aurait pu être saisi pendant le chargement
   try { await sauverInterne(); await ecrireJournal(); } catch(e){ /* déjà signalé */ }
   try { await exigerDossier(); } catch(e){ signalerPanne(e, 'demande du dossier de données'); }
+  try { if (FS.autorise) verifierAnnee(); } catch(e){ signalerPanne(e, "contrôle de l'année scolaire"); }
 }
 document.addEventListener('DOMContentLoaded', demarrer);
 </script>
