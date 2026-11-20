@@ -3620,7 +3620,7 @@ function ouvrirSortie(idPassage){
   if (!p) return;
   const nom = (p.eleve.classe ? p.eleve.classe + ' ' : '') + libelleEleve(p.eleve);
   let repondu = false;
-  ouvrirModale({
+  const m = ouvrirModale({
     titre: 'Départ de la Classe Ressource',
     contenu: el('div', null, [
       el('p', { style: { fontSize: '1.2rem', margin: '0 0 6px', fontWeight: '650' } }, [
@@ -3637,6 +3637,26 @@ function ouvrirSortie(idPassage){
       { texte: 'Oui', classe: 'principal', action: f => { repondu = true; f(); assistantSortie(idPassage); } }
     ]
   });
+  // Petit bouton rouge sous « Modifier l'entrée » : retire une entrée erronée (élève
+  // qu'on a oublié de faire sortir, entrée saisie par erreur) pour ne pas fausser les stats.
+  const gauche = m.pied.querySelector('.gauche');
+  if (gauche && !ETAT.lectureSeule){
+    Object.assign(gauche.style, { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' });
+    gauche.appendChild(el('button', { class: 'btn petit danger', onclick: async () => {
+      const saisiPar = p.accueilliPar || p.creePar;
+      const ok = await confirmer('Supprimer l\'entrée de ' + libelleEleve(p.eleve) + ' ?',
+        'Arrivée enregistrée le <strong>' + ech(jourFR(p.debut)) + ' à ' + ech(heureFR(p.debut)) + '</strong>' +
+        (saisiPar ? ' par ' + ech(saisiPar) : '') + '.<br><br>' +
+        'L\'élève disparaît des présents et ce passage <strong>ne comptera pas dans les statistiques</strong>. ' +
+        'À utiliser pour une entrée erronée ou un élève qu\'on a oublié de faire sortir.',
+        'Supprimer l\'entrée', 'Annuler', 'danger');
+      if (!ok) return;
+      enregistrer('suppPassage', { id: idPassage });
+      m.fermer();
+      rafraichirEcranCourant();
+      notifier('Entrée de ' + libelleEleve(p.eleve) + ' supprimée.', 'succes');
+    } }, '🗑 Supprimer l\'entrée'));
+  }
 }
 
 function assistantSortie(idPassage){

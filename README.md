@@ -73,9 +73,10 @@ Les autres postes basculent d'eux-mêmes à leur lancement suivant. On peut auss
 - Le journal du lanceur se trouve dans `%LOCALAPPDATA%\ClasseRessource\lanceur.log`.
 - « Dossier de données inaccessible » : vérifiez que le lecteur réseau est connecté, puis
   *Réessayer*.
-- Le fichier `ClasseRessource.html` fonctionne toujours seul (double-clic, avec demande
-  d'autorisation de Chrome) ; s'il est posé à côté de l'exe dans une version plus récente,
-  c'est lui que le lanceur affiche.
+- Aucun fichier HTML n'est nécessaire à côté de l'exe : l'application est intégrée dedans.
+  Le dossier de l'application ne contient donc que `ClasseRessource.exe` et les dossiers
+  d'année. (`ClasseRessource.html` reste disponible dans ce dépôt et fonctionne seul, par
+  double-clic avec demande d'autorisation de Chrome, en cas de secours.)
 
 ## Pour les développeurs
 
