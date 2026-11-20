@@ -40,6 +40,9 @@ var pageIntegree []byte
 // il doit rester stable pour que le navigateur retrouve sa copie de secours.
 var ports = []int{47811, 47812, 47813, 47814, 47815}
 
+// attentePremierPlan : travail en cours pour amener la fenêtre au premier plan.
+var attentePremierPlan sync.WaitGroup
+
 var (
 	dossierExe  string // dossier contenant l'exécutable
 	dossierBase string // dossier de données (racine servie)
@@ -73,6 +76,7 @@ func main() {
 		if _, err := ouvrirNavigateur(existante); err != nil {
 			erreurFatale("Impossible d'ouvrir le navigateur :\n\n" + err.Error())
 		}
+		attentePremierPlan.Wait() // le temps d'amener la nouvelle fenêtre devant
 		return
 	}
 	if ecouteur == nil {

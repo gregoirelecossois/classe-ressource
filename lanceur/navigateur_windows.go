@@ -56,6 +56,7 @@ func lireAppPath(racine syscall.Handle, nom string) string {
 // renvoyé se ferme quand cette fenêtre est fermée (nil si non suivie).
 func ouvrirNavigateur(url string) (<-chan struct{}, error) {
 	profil := filepath.Join(dossierProfil(), "Navigateur")
+	devant := preparerPremierPlan()
 	for _, exe := range candidats() {
 		if st, err := os.Stat(exe); err != nil || st.IsDir() {
 			continue
@@ -70,6 +71,7 @@ func ouvrirNavigateur(url string) (<-chan struct{}, error) {
 		if err := cmd.Start(); err != nil {
 			continue
 		}
+		go devant()
 		fin := make(chan struct{})
 		go func() { _ = cmd.Wait(); close(fin) }()
 		return fin, nil
@@ -78,11 +80,11 @@ func ouvrirNavigateur(url string) (<-chan struct{}, error) {
 	if err := exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start(); err != nil {
 		return nil, errors.New("aucun navigateur trouvé (Chrome ou Edge)")
 	}
+	go devant()
 	return nil, nil
 }
 
 func afficherMessage(titre, msg string) {
-	user32 := syscall.NewLazyDLL("user32.dll")
 	boite := user32.NewProc("MessageBoxW")
 	t, _ := syscall.UTF16PtrFromString(titre)
 	m, _ := syscall.UTF16PtrFromString(msg)
