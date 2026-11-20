@@ -1678,20 +1678,51 @@ async function racineLanceur(){
   const an = anneeScolaire();
   const liste = await dossiersAnnees();
   const marques = liste.filter(x => x.marqueur);
-  const courant = marques.find(x => x.marqueur.annee === an);
-  if (courant) return courant.h;
+  const courants = marques.filter(x => x.marqueur.annee === an);
+  if (courants.length === 1) return courants[0].h;
+  if (courants.length > 1) return (await departager(courants)).h;
   // dossier préparé à la main pour cette année, encore vierge
   const prepare = liste.find(x => !x.marqueur && x.h.chemin && norm(x.h.name).indexOf(norm(an)) >= 0);
   if (prepare) return prepare.h;
   if (marques.length){
-    marques.sort((a, b) => (a.marqueur.annee < b.marqueur.annee ? 1 : -1));
-    return marques[0].h;
+    // année la plus récente ; s'il en existe une copie, on garde l'original
+    const derniere = marques.map(x => x.marqueur.annee).sort().pop();
+    const candidats = marques.filter(x => x.marqueur.annee === derniere);
+    return candidats.length > 1 ? (await departager(candidats)).h : candidats[0].h;
   }
   // dossier d'une version antérieure de l'application (sans marqueur d'année)
   const ancien = liste.find(x => x.donnees);
   if (ancien) return ancien.h;
   // première utilisation : on crée le dossier de l'année
   return baseLanceur().getDirectoryHandle(nomDossierAttendu(an), { create: true });
+}
+/** Plusieurs dossiers pour la même année (une copie de sauvegarde, souvent) :
+    on écarte les copies, puis on prend celui dont les saisies sont les plus récentes. */
+async function departager(liste){
+  const copie = n => /\b(copie|copy|sauvegarde|backup|archive|ancien|old|test)\b/.test(norm(n));
+  for (const x of liste){
+    x.recent = 0;
+    try {
+      for await (const [n, f] of (await x.h.getDirectoryHandle('donnees')).entries()){
+        if (f.kind === 'file' && /^journal-.*\.jsonl$/i.test(n) && f.infos) x.recent = Math.max(x.recent, f.infos.modif);
+      }
+    } catch(e){ /* dossier sans journaux */ }
+  }
+  liste.sort((a, b) => (copie(a.h.name) - copie(b.h.name)) || (b.recent - a.recent));
+  const retenu = liste[0];
+  setTimeout(() => notifier('Plusieurs dossiers pour ' + retenu.marqueur.annee + ' : « ' + retenu.h.name +
+    ' » est utilisé. ' + (liste.length - 1) + ' autre(s) ignoré(s) : ' +
+    liste.slice(1).map(x => '« ' + x.h.name + ' »').join(', ') + '.', 'erreur', 12000), 1500);
+  return retenu;
+}
+/** Nom du dossier d'une nouvelle année : on reprend le nom du dossier actuel en
+    changeant l'année (« Données classe Ressource 2026 - 2027 » -> « … 2027 - 2028 »). */
+function nomDossierAnnee(annee){
+  const modele = (LANCEUR && FS.racine && FS.racine.chemin && FS.racine.chemin.indexOf('/') < 0) ? FS.racine.name : '';
+  const m = /(\d{4})(\s*[-–_]\s*)(\d{4})/.exec(modele);
+  if (!m) return nomDossierAttendu(annee);
+  const a = parseInt(annee, 10);
+  return modele.slice(0, m.index) + a + m[2] + (a + 1) + modele.slice(m.index + m[0].length);
 }
 /* Signes de vie : le lanceur s'arrête tout seul quand plus aucune fenêtre n'est ouverte. */
 if (LANCEUR){
@@ -1930,7 +1961,7 @@ function proposerNouvelleAnnee(){
       ])
     ]),
     el('p', { class: 'aide', html:
-      'Le dossier <strong>' + ech(nomDossierAttendu(nouvelle)) + '</strong> sera créé automatiquement dans ' +
+      'Le dossier <strong>' + ech(nomDossierAnnee(nouvelle)) + '</strong> sera créé automatiquement dans ' +
       '<code>' + ech(LANCEUR.base) + '</code>. Les autres postes basculeront d\'eux-mêmes à leur prochain lancement.' })
   ]);
   let enCours = false;
@@ -1960,7 +1991,7 @@ function proposerNouvelleAnnee(){
 /** Crée le dossier de la nouvelle année dans le dossier du lanceur et y bascule. */
 async function passerNouvelleAnnee(annee){
   try {
-    const h = await baseLanceur().getDirectoryHandle(nomDossierAttendu(annee), { create: true });
+    const h = await baseLanceur().getDirectoryHandle(nomDossierAnnee(annee), { create: true });
     // Un autre poste a peut-être déjà fait la bascule : on le rejoint simplement.
     const ancien = FS.racine;
     FS.racine = h;
@@ -4680,7 +4711,7 @@ function assistantNouvelleAnnee(){
     corps.appendChild(el('code', {
       style: { display: 'block', padding: '12px 14px', background: 'var(--gris-50)', border: '1px solid var(--bordure)',
                borderRadius: 'var(--r-s)', fontSize: '1rem', fontWeight: '700', margin: '0 0 10px' },
-      texte: nomDossierAttendu(cible) }));
+      texte: LANCEUR ? nomDossierAnnee(cible) : nomDossierAttendu(cible) }));
     corps.appendChild(el('p', { class: 'aide', html: LANCEUR
       ? 'L\'ancien dossier n\'est pas modifié : il reste consultable en lecture seule.'
       : '<strong>3.</strong> Le désigner ci-dessous. L\'ancien dossier n\'est pas modifié : il reste ' +
@@ -4708,7 +4739,7 @@ function assistantNouvelleAnnee(){
 async function demarrerAnnee(annee, modale){
   let h;
   if (LANCEUR){
-    try { h = await baseLanceur().getDirectoryHandle(nomDossierAttendu(annee), { create: true }); }
+    try { h = await baseLanceur().getDirectoryHandle(nomDossierAnnee(annee), { create: true }); }
     catch(e){ signalerPanne(e, 'création du dossier de ' + annee); return; }
     return basculerVersDossier(h, annee, modale);
   }

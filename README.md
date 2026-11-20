@@ -15,15 +15,20 @@ Quand on ferme la fenêtre, le lanceur s'arrête de lui-même.
 
 ### Où sont les données ?
 
-Dans le **dossier qui contient `ClasseRessource.exe`**. Chaque année scolaire y a son
-sous-dossier, créé automatiquement :
+Dans le **dossier qui contient `ClasseRessource.exe`** : l'exe se place au-dessus des
+dossiers d'année, et choisit tout seul celui de l'année en cours (grâce au fichier
+`annee.json` qu'il contient, quel que soit le nom du dossier) :
 
 ```
-📁 Classe Ressource            ← le dossier partagé (réseau ou local)
+📁 Q:\CLASSE RESSOURCE\Application Classe Ressource
    ClasseRessource.exe
-   📁 Donnees Classe Ressource 2026-2027
-   📁 Donnees Classe Ressource 2027-2028
+   📁 Données classe Ressource 2026 - 2027
+   📁 Données classe Ressource 2027 - 2028   ← créé au passage d'année, sur le même modèle de nom
 ```
+
+S'il trouve plusieurs dossiers pour la même année (une copie de sauvegarde, par exemple),
+il écarte ceux dont le nom contient « Copie », « Sauvegarde », « Backup »…, prend celui dont
+les saisies sont les plus récentes, et le signale à l'écran.
 
 Tous les postes qui lancent **le même** `ClasseRessource.exe` (ou une copie posée dans le
 même dossier) travaillent sur les mêmes données.
@@ -36,8 +41,8 @@ même dossier) travaillent sur les mêmes données.
 
 1. Copiez `ClasseRessource.exe` dans le dossier partagé de l'établissement.
    *Vous utilisiez déjà l'application ?* Posez l'exe **dans le dossier qui contient votre
-   dossier de données actuel** (ou dans ce dossier lui-même) : il est retrouvé tel quel,
-   rien n'est perdu.
+   dossier de données actuel** (par exemple `Application Classe Ressource`, au-dessus de
+   `Données classe Ressource 2026 - 2027`) : il est retrouvé tel quel, rien n'est perdu.
 2. Sur chaque poste : clic droit sur l'exe ▸ *Afficher plus d'options* ▸ *Envoyer vers* ▸
    *Bureau (créer un raccourci)*.
 3. Au tout premier lancement, Windows peut afficher « Windows a protégé votre ordinateur »
