@@ -4,7 +4,7 @@
 #   go install github.com/akavel/rsrc@latest
 set -e
 cd "$(dirname "$0")"
-cp ../ClasseRessource.html ClasseRessource.html          # page intégrée à l'exécutable
+cp ../source/ClasseRessource.html ClasseRessource.html         # page intégrée à l'exécutable
 if command -v rsrc >/dev/null 2>&1 || [ -x "$HOME/go/bin/rsrc" ]; then
   "$(command -v rsrc || echo "$HOME/go/bin/rsrc")" -ico icone.ico -arch amd64 -o rsrc_windows_amd64.syso
 fi
